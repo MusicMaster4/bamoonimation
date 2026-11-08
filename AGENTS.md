@@ -74,7 +74,7 @@ rig({ name: 'coelho', plan: 'quadrupede', bones: skeleton('quadrupede', { altura
 | `poly rect circle ellipse path` | primitivas |
 | `taper(pts, larguras)` | pincelada afinada (cabelo, cauda, capim, dobras) |
 | `line(pts, {stroke, lw})` | traço |
-| `rig({...})`, `pessoa({...})` | personagens com esqueleto |
+| `rig({...})`, `pessoa({...})`, `ave({...})` | personagens com esqueleto (aves: asa anatômica projetada; poses `ASA.*`, batida `bater(t, freq)`) |
 | `particles({...})`, `rays({...})` | fumaça, bolhas, poeira, chuva / feixes de luz |
 | `dyn(t => nós)`, `custom((ctx,t) => ...)`, `img(arq)` | procedural / canvas / imagem |
 

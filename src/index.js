@@ -20,3 +20,4 @@ export { TEXTURES } from './textures.js';
 export { skeleton, PLAN_RULES } from './anatomy.js';
 export { solveRig, restPose, chainPoints } from './rig.js';
 export { pessoa, caminhada, cabecaPerfil, olho, boca } from './pessoa.js';
+export { ave, ASA, bater, plantaAsa, pelesAsa } from './ave.js';

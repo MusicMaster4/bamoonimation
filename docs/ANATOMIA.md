@@ -10,7 +10,8 @@ Leia isto **antes** de animar qualquer personagem. O motor tem três peças que 
    esticado além do alcance, proporção errada, assimetria, pé afundando/deslizando, teletransporte,
    camadas fora de ordem e texto. `bamoo still cena.js -t 2 --rig` desenha os esqueletos (vermelho = problema).
 
-E uma base pronta: **`pessoa()`** (homem e mulher anatômicos) + **`caminhada()`** (andar realista).
+E bases prontas: **`pessoa()`** (homem e mulher anatômicos) + **`caminhada()`** (andar realista), e
+**`ave()`** (rapina ou pássaro, com asa anatômica projetada em 3D) + **`bater()`** / **`ASA`** (poses de voo).
 
 ---
 
@@ -108,15 +109,31 @@ umero*, antebraco*, mao*` (dianteira) e `femur*, tibia*, meta*, pata*` (traseira
   estendidas para trás → **dianteiras pousam primeiro, com o focinho inclinado para baixo** → traseiras passam
   para a frente e pousam → agacha. Dirija pela distância (como `gait`) e termine com um número inteiro de saltos.
 
-### Aves — `skeleton('ave', { tamanho })`
+### Aves — use `ave()` (base pronta) sobre `skeleton('ave', { tamanho })`
 
-`tamanho` = do bico à ponta da cauda. Ossos: `quadril, corpo, pescoco, cabeca, cauda, umero*, ulna*, mao*`
-(asa) e `coxa*, tibio*, tarso*, dedos*` (perna).
+```js
+import { ave, ASA, bater } from 'bamoonimation';
+ave({ tipo: 'rapina', tamanho: 420, x, y, s: 0.8, asa: t => bater(t, 2), cauda: 0.5 });            // voando
+ave({ tipo: 'passaro', x, y: CHAO - 165 * s, s, rot: -20, ground: CHAO, asa: ASA.dobrada,          // pousado
+      coxa: 85, pe: [-30, 158], dedos: 20, cores: { corpo: '#8a6446' } });
+ave({ ..., asa: ASA.freio, coxa: 10, pe: [125, 115], dedos: 40, garra: 1 });                         // ataque
+```
 
-- A **asa dobra em Z**: úmero para trás, ulna para frente, mão para trás. Cotovelo dobra para −, punho para +.
-- **Secundárias** saem da ulna, **primárias** ("dedos" da ponta) saem da mão; ao dobrar, as penas giram e se
-  sobrepõem ao longo do corpo. Desenhe a asa a partir dos ossos (pele `draw`, ver `asaPele` em `scenes/hawk.js`).
-- Batida: desce com a asa estendida, sobe **recolhendo o punho** (`bater()` em `scenes/hawk.js`).
+**Por que a asa é especial:** o bater de asa acontece num plano **perpendicular à câmera**. Girar ossos no
+plano da tela quebra a asa (vira um bastão e as penas trocam de lado). Em `ave()` a asa é modelada na sua
+própria **planta** e projetada na tela:
+
+- pose de asa = `{ e, f, v }`: **elevação** `e` (90 para cima · 0 apontando para a câmera, vira uma lâmina ·
+  −90 para baixo), **dobra** `f` (0 aberta … 1 fechada em Z) e **varredura** `v` (+ = pontas para trás);
+- a dobra segue a anatomia: úmero 0.18T, ulna 0.24T, mão 0.2T, cotovelo de 165° (aberto) a 25° (fechado),
+  punho de 165° a 18° — úmero para trás, ulna para a frente, mão para trás;
+- **secundárias** presas à ulna (borda de fuga, sempre para a cauda), **primárias** presas à mão (leque com
+  "dedos" na ponta), terciárias perto do corpo, coberteiras por cima;
+- poses prontas em `ASA`: `alta`, `meio`, `baixa`, `recolhe`, `planando`, `freio`, `dobrada` (no flanco);
+- `bater(t, freq)`: desce **estendida** (força) e sobe **recolhendo o punho** (`recolhe`), como as aves reais.
+
+Ossos do esqueleto: `quadril, corpo, pescoco, cabeca, cauda, ombro*` (fixação da asa) e
+`coxa*, tibio*, tarso*, dedos*` (perna). Prancha de referência: `scenes/testes/aves.js`.
 - A coxa (fêmur) fica escondida no corpo; o que se vê é o tibiotarso ("coxinha", com penas) e o tarso
   escamoso. O "joelho para trás" das aves é o **tornozelo**.
 - Ataque de rapina: fêmur gira para a frente e lança as garras à frente do peito, asas para cima e para trás
@@ -134,7 +151,7 @@ Cabeça (raiz) + segmentos para trás com ±25° por junta. Anime com uma onda n
 | `{ bone, node }` | desenho rígido (cabeça, mão, sapato, tronco). **Desenhe na pose de descanso, em coordenadas do rig** — ele acompanha o osso. `local: true` usa as coords do osso (origem na junta, +x ao longo do osso), bom para objetos segurados |
 | `{ limb: [ossos], w: [larguras nas juntas], fill }` | membro contínuo e arredondado nas juntas |
 | `{ spine: [ossos], top, bot, fill }` | contorno com perfis diferentes na frente/atrás (coxa+panturrilha, braço+bíceps). Liste da raiz para a ponta: em membros que descem, `top` = frente |
-| `{ draw: S => nó }` | desenho procedural a partir das posições dos ossos (`S.get('ulnaN')` → `{x0,y0,x1,y1,abs,rel}`): saias, asas, roupas |
+| `{ draw: S => nó }` | desenho procedural a partir das posições dos ossos (`S.get('coxaN')` → `{x0,y0,x1,y1,abs,rel}`): saias, roupas, asas projetadas (ver `pelesAsa` em `src/ave.js`) |
 | `side: 'far' | 'mid' | 'near'`, `show`, `hidden`, `alpha` | ordem e visibilidade |
 
 Para posicionar peles, rode `bamoo still cena.js -t 0 --rig --grid` com o rig em pose de descanso.

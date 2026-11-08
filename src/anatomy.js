@@ -89,11 +89,10 @@ function quadrupede({ altura = 300, variante = 'cao' } = {}) {
 }
 
 /**
- * Ave (rapina, pombo, pardal...). tamanho = comprimento do bico à ponta da cauda. Pose: empoleirada,
- * asas dobradas em "Z" ao longo do corpo. Ossos: quadril, corpo, pescoco, cabeca, cauda,
- * umero*, ulna* (antebraço: rêmiges secundárias), mao* (rêmiges primárias), coxa*, tibio* ("coxinha"),
- * tarso* (a "canela" escamosa), dedos*. Asa: cotovelo dobra para −, punho para +. A "junta para trás"
- * da perna é o tornozelo (tarso dobra para −), não o joelho.
+ * Ave (rapina, pombo, pardal...). tamanho = comprimento do bico à ponta da cauda. Ossos: quadril, corpo,
+ * pescoco, cabeca, cauda, ombro* (fixação da asa), coxa*, tibio* ("coxinha"), tarso* (a "canela"
+ * escamosa), dedos*. A "junta para trás" da perna é o tornozelo (tarso dobra para −), não o joelho.
+ * A asa bate num plano perpendicular à câmera, então é modelada à parte (src/ave.js: plantaAsa/ave).
  */
 function ave({ tamanho = 400 } = {}) {
   const T = tamanho;
@@ -103,9 +102,9 @@ function ave({ tamanho = 400 } = {}) {
     pescoco: ['corpo', T * 0.09, -45, -110, 40],
     cabeca: ['pescoco', T * 0.12, 50, -45, 100],
     cauda: ['quadril', T * 0.32, 190, 140, 235],
-    'umero*': ['corpo', T * 0.16, 190, -150, 215, { at: 0.82, off: [0, -T * 0.02] }],
-    'ulna*': ['umero*', T * 0.2, -160, -170, 5],
-    'mao*': ['ulna*', T * 0.17, 160, -5, 170],
+    // ponto de fixação da asa: a asa em si (úmero 0.18T, ulna 0.24T, mão 0.2T, dobra em Z) é modelada
+    // na sua própria planta e projetada pela elevação — ver plantaAsa()/ave() em src/ave.js
+    'ombro*': ['corpo', 0, 0, undefined, undefined, { at: 0.82, off: [0, -T * 0.02] }],
     'coxa*': ['quadril', T * 0.09, 55, -10, 115, { off: [T * 0.02, T * 0.04] }],
     'tibio*': ['coxa*', T * 0.17, 70, 10, 165],
     'tarso*': ['tibio*', T * 0.13, -45, -165, 10],
@@ -154,7 +153,6 @@ export const PLAN_RULES = {
     [['tibia'], ['femur'], 0.8, 1.5, 'tíbia ≈ fêmur ou um pouco maior'],
   ],
   ave: [
-    [['umero', 'ulna', 'mao'], ['corpo'], 1.2, 2.8, 'asa (sem penas) ≈ 1.8× o corpo'],
     [['tibio'], ['tarso'], 0.8, 2.2, 'tibiotarso ("coxinha") maior que o tarso'],
     [['cabeca'], ['corpo'], 0.25, 0.7, 'cabeça ≈ 0.4 do corpo'],
   ],

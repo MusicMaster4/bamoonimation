@@ -2,7 +2,7 @@
 // 3 planos: o campo (gavião circulando) -> o mergulho -> o ataque (e a fuga para a toca).
 // Gavião e coelho são rigs anatômicos: skeleton('ave') e skeleton('quadrupede', { variante: 'coelho' }).
 import {
-  scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, lin, rad, rig, skeleton, restPose,
+  scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, lin, rad, rig, skeleton, restPose, ave, ASA, bater,
   kf, osc, rng, scatter, rep, body, spline, move, heading, smooth, clamp, lerp, lerpAny, ease, V, noise, decay, between, darken, mix,
 } from 'bamoonimation';
 
@@ -21,118 +21,13 @@ const look = {
 const sky = lin(90, [0, C.skyTop], [0.55, C.skyMid], [1, C.skyLow]);
 const GROUND = 860;
 
-// ------------------------------------------------------------------ gavião (esqueleto skeleton('ave'))
-const AVE = skeleton('ave', { tamanho: 420 });
-const FEATHER = (len, w) => taper([[0, 0], [len * 0.55, 0], [len, 0]], [w, w * 0.9, w * 0.25], { caps: 'round' });
-const pt = (s, u) => [s.x0 + (s.x1 - s.x0) * u, s.y0 + (s.y1 - s.y0) * u];
-// poses de asa (ângulos relativos úmero/ulna/mão). Interpolam com kf/lerpAny.
-const ASA = {
-  dobrada: { u: 190, l: -160, m: 160 },
-  alta: { u: -78, l: -10, m: 16 },
-  baixa: { u: 92, l: -12, m: 10 },
-  recolhe: { u: -40, l: -95, m: 120 },
-  freio: { u: -112, l: -26, m: 44 },
+// ------------------------------------------------------------------ gavião: figura base ave() do motor
+// (asa anatômica com dobra em Z, modelada na própria planta e projetada pela elevação — ver src/ave.js)
+const HAWK = {
+  tipo: 'rapina', tamanho: 420,
+  cores: { corpo: C.hawk, asa: C.hawk, borda: C.hawkD, ponta: '#40261a', marcas: C.hawkD, ventre: C.cream, cauda: ['#e0784a', C.rust], bico: C.beak, cera: C.cere, perna: C.leg },
 };
-/** Batida de asa: desce estendida, sobe recolhendo o punho (como as aves reais). */
-function bater(t, freq = 2.2) {
-  const f = ((t * freq) % 1 + 1) % 1;
-  if (f < 0.45) return lerpAny(ASA.alta, ASA.baixa, ease.inOut(f / 0.45));
-  if (f < 0.75) return lerpAny(ASA.baixa, ASA.recolhe, ease.inOut((f - 0.45) / 0.3));
-  return lerpAny(ASA.recolhe, ASA.alta, ease.inOut((f - 0.75) / 0.25));
-}
-// asa desenhada a partir dos ossos: coberteiras + secundárias (na ulna) + primárias (na mão)
-const asaPele = (side, fill, edge) => ({
-  side: side === 'F' ? 'far' : 'near',
-  draw: S => {
-    const U = S.get('umero' + side), L = S.get('ulna' + side), M = S.get('mao' + side);
-    const fold = clamp(-L.rel / 160);
-    const sec = rep(8, i => {
-      const [x, y] = pt(L, 0.05 + i * 0.12);
-      return G({ x, y, rot: L.abs - (92 + 70 * fold) + i * 2 }, [FEATHER(74 - i * 2, 34)]);
-    });
-    const pri = rep(5, i => {
-      const [x, y] = pt(M, 0.35 + i * 0.16);
-      return G({ x, y, rot: M.abs - (26 - i * 8) * (1 - fold) - 3 * i * fold }, [FEATHER(150 - i * 12, 30)]);
-    });
-    const cov = blob([[U.x0, U.y0 - 16], [L.x0, L.y0 - 14], ...rep(4, i => pt(M, i / 3)).map(([x, y], i) => [x, y - 10 + i * 3]), [M.x1, M.y1 + 8], ...rep(4, i => pt(L, 1 - i / 3)).map(([x, y]) => [x, y + 24]), [U.x0 - 8, U.y0 + 18]],
-      { fill, shade: 0.4, hl: 0.4, tex: { k: 'brush', a: 0.3, s: 0.6 } });
-    return G([
-      G({ fill: edge, shade: 0.3, hl: 0.2 }, sec),
-      G({ fill: edge, shade: 0.35, hl: 0.25 }, pri),
-      cov,
-      ...rep(5, i => {
-        const [x, y] = pt(L, 0.12 + i * 0.18);
-        return ellipse(x, y + 6, 6, 3.5, { fill: C.hawkD, shade: 0, hl: 0 });
-      }),
-    ]);
-  },
-});
-const garra = (fechada, near) =>
-  G({ fill: '#2a2226', shade: 0, hl: 0 }, [
-    ...rep(3, i => taper(t => {
-      const g = clamp(V(fechada, t) ?? 0);
-      return [[4 + i * 8, 0], [14 + i * 9, 6 + g * 6], [16 + i * 9 - g * 10, 16]];
-    }, [6, 4, 1])),
-    taper(t => {
-      const g = clamp(V(fechada, t) ?? 0);
-      return [[0, 0], [-10, 6], [-8 + g * 8, 16]];
-    }, [6, 4, 1]),
-    taper([[0, -3], [26, -3]], [10, 9], { fill: near ? C.leg : darken(C.leg, 0.08) }),
-  ]);
-/**
- * Gavião rigado. o: asa (t => {u,l,m}), corpo (pitch, graus rel.), cabeca (graus), cauda (0..1 leque),
- * pe (t => [x,y] alvo do pé em coords do rig, ou null = pernas recolhidas), dedos (ângulo abs), garra (0..1),
- * coxa (ângulo do fêmur: 55 em pé; ~10 no golpe, quando a ave lança as garras à frente).
- */
-function hawk(o = {}) {
-  const asa = k => t => (V(o.asa, t) ?? ASA.dobrada)[k];
-  const tuck = t => !V(o.pe, t);
-  return rig({
-    name: o.name ?? 'gavião', plan: 'ave', bones: AVE, ground: o.ground, x: o.x, y: o.y, rot: o.rot, s: o.s, flip: o.flip,
-    pose: {
-      corpo: t => -15 + (V(o.corpo, t) ?? 0), cabeca: t => 50 + (V(o.cabeca, t) ?? 0), cauda: t => 190 + (V(o.caudaAng, t) ?? 0),
-      coxaN: t => V(o.coxa, t) ?? 55, coxaF: t => V(o.coxa, t) ?? 55,
-      umeroN: asa('u'), ulnaN: asa('l'), maoN: asa('m'),
-      umeroF: t => asa('u')(t) + 8, ulnaF: asa('l'), maoF: asa('m'),
-      tibioN: t => (tuck(t) ? 150 : 70), tarsoN: t => (tuck(t) ? -150 : -45), dedosN: t => (tuck(t) ? -60 : -80),
-      tibioF: t => (tuck(t) ? 150 : 70), tarsoF: t => (tuck(t) ? -150 : -45), dedosF: t => (tuck(t) ? -60 : -80),
-    },
-    ik: [
-      { chain: ['tibioN', 'tarsoN', 'dedosN'], target: t => V(o.pe, t) ?? [0, 0], endAng: t => V(o.dedos, t) ?? 0, on: t => !tuck(t) },
-      { chain: ['tibioF', 'tarsoF', 'dedosF'], target: t => V(o.peF, t) ?? (p => [p[0] - 18, p[1] - 4])(V(o.pe, t) ?? [0, 0]), endAng: t => V(o.dedos, t) ?? 0, on: t => !tuck(t) },
-    ],
-    skin: [
-      asaPele('F', darken(C.hawk, 0.1), darken(C.hawkD, 0.08)),
-      { draw: S => { const tb = S.get('tibioF'); return blob(body([[tb.x0, tb.y0], [tb.x1, tb.y1]], [13, 11, 7], [15, 13, 8], { n: 6 }), { fill: darken(C.hawk, 0.1), shade: 0.4 }); }, side: 'far', hidden: tuck },
-      { limb: ['tarsoF'], w: [11, 9], fill: darken(C.leg, 0.08), hidden: tuck },
-      { bone: 'dedosF', local: true, node: garra(o.garra, false), hidden: tuck },
-      // cauda ruiva em leque
-      { bone: 'cauda', node: G({ fill: lin(0, '#e0784a', C.rust), shade: 0.35, hl: 0.3 }, rep(5, i => G({ rot: t => 190 + (i - 2) * (4 + 5 * (V(o.cauda, t) ?? 0)) }, [FEATHER(140, 46)]))) },
-      // corpo, barriga com estrias, pescoço, cabeça
-      { bone: 'corpo', node: G([
-        blob([[-64, -4], [-40, -30], [20, -52], [90, -60], [132, -54], [150, -36], [140, -12], [110, 12], [60, 32], [0, 32], [-44, 20]], { fill: lin(90, C.hawk, C.wingL), shade: 0.45, hl: 0.45, tex: { k: 'brush', a: 0.25, s: 0.5 } }),
-        blob([[-34, 18], [20, 28], [80, 24], [122, 6], [138, -16], [110, -2], [60, 10], [0, 12]], { fill: C.cream, shade: 0.35, hl: 0.2 }),
-        ...rep(7, i => taper([[-20 + i * 18, 18 + (i % 2) * 4], [-12 + i * 18, 25 + (i % 2) * 4]], [5, 1], { fill: C.hawkD, alpha: 0.7, shade: 0, hl: 0 })),
-      ]) },
-      { bone: 'pescoco', node: blob([[112, -40], [128, -78], [158, -98], [178, -62], [150, -30]], { fill: C.hawk, shade: 0.4, hl: 0.4 }) },
-      { bone: 'cabeca', node: G({ x: 162, y: -72 }, [
-        circle(0, 0, 38, { fill: C.hawk, shade: 0.4, hl: 0.45 }),
-        blob([[-10, 6], [20, -4], [38, 6], [32, 26], [0, 30]], { fill: C.cream, shade: 0.3, hl: 0 }),
-        blob([[28, -12], [40, -12], [42, 0], [30, 2]], { fill: C.cere, shade: 0.2 }),
-        blob([[38, -14], [56, -10], [64, 6, 0.5], [58, 20, 0], [54, 8], [40, 4]], { fill: lin(0, '#5a5560', C.beak), shade: 0.3, hl: 0.5 }),
-        circle(17, -8, 10, { fill: '#f2c640', shade: 0, hl: 0 }),
-        circle(19, -8, 5.2, { fill: '#120c0a', shade: 0, hl: 0 }),
-        circle(21, -10, 1.9, { fill: '#fff', shade: 0, hl: 0 }),
-        taper([[4, -21], [19, -22], [34, -15]], [3, 7, 3], { fill: C.hawkD, shade: 0, hl: 0 }),
-      ]) },
-      // perna de cá: "calça" de penas na coxa + tarso amarelo + garra
-      { draw: S => { const tb = S.get('tibioN'); return blob(body([[tb.x0, tb.y0], [tb.x1, tb.y1]], [14, 12, 8], [16, 14, 9], { n: 6 }), { fill: C.hawk, shade: 0.4, hl: 0.3 }); }, side: 'near', hidden: tuck },
-      { limb: ['tarsoN'], w: [12, 10], fill: C.leg, hidden: tuck },
-      { bone: 'dedosN', local: true, node: garra(o.garra, true), hidden: tuck },
-      asaPele('N', C.hawk, C.hawkD),
-    ],
-  });
-}
+const hawk = (o = {}) => ave({ ...HAWK, name: 'gavião', ...o });
 
 // ------------------------------------------------------------------ coelho (esqueleto skeleton('quadrupede', coelho))
 const COELHO = skeleton('quadrupede', { altura: 120, variante: 'coelho' });
@@ -316,7 +211,7 @@ const shot1 = scene({
       hawk({
         name: 'gavião no alto', s: SHAWK1, x: t => 1080 + 90 * t, y: t => 240 + 40 * Math.sin(t * 0.8),
         rot: t => -6 * Math.cos(t * 0.8),
-        asa: t => lerpAny(ASA.alta, ASA.baixa, 0.25 + 0.12 * Math.sin(t * 2)), cauda: 0.7,
+        asa: t => ({ ...ASA.planando, e: 26 + 8 * Math.sin(t * 1.6) }), cauda: 0.7,
       }),
     ]),
     layer({ z: 4 }, [hill(780, 90, C.hill, 2), tree(300, 760, 0.8, 1), tree(560, 770, 0.6, 2), tree(1900, 760, 0.9, 3)]),
@@ -397,7 +292,8 @@ const shot3 = scene({
       // toca: buraco atrás, montinho de terra na frente
       ellipse(HOLE, GROUND + 26, 74, 24, { fill: C.hole, shade: 0, hl: 0 }),
       // coelho: come, fica alerta, foge aos saltos e mergulha na toca
-      G({ show: [0, TC], y: t => 110 * smooth(TC - 0.14, TC, t), rot: t => 35 * smooth(TC - 0.2, TC, t), px: HOLE - 50, py: GROUND + 40 }, [
+      // tudo que entra na toca é recortado na linha do chão (não aparece "dentro da terra")
+      G({ clip: rect(-3000, -3000, 9000, GROUND + 3030) }, [G({ show: [0, TC], y: t => 110 * smooth(TC - 0.14, TC, t), rot: t => 35 * smooth(TC - 0.2, TC, t), px: HOLE - 50, py: GROUND + 40 }, [
         coelho({
           name: 'coelho fugindo', x: t => rabX.at(t), x0: 900, chao: GROUND + 40, s: SR, Lh: (HOLE - 50 - 900) / (3 * SR),
           ground: t => (t < TC - 0.2 ? GROUND + 40 : undefined),
@@ -407,6 +303,7 @@ const shot3 = scene({
       ]),
       // o coelho espia da toca no final
       G({ show: [5.8, 99], y: t => 150 - 72 * smooth(5.9, 6.5, t) }, [coelho({ name: 'coelho espiando', x: HOLE - 60, chao: GROUND + 40, s: 1.1, orelhas: kf([5.9, 0.6], [6.6, 1]), cabeca: t => 6 * Math.sin(t * 3) })]),
+      ]),
       blob([[HOLE - 110, GROUND + 60], [HOLE - 80, GROUND + 26], [HOLE - 20, GROUND + 36], [HOLE + 50, GROUND + 34], [HOLE + 100, GROUND + 20], [HOLE + 130, GROUND + 60], [HOLE, GROUND + 74]], { fill: lin(90, '#9a7050', C.dirt), shade: 0.4, hl: 0.4, tex: { k: 'speckle', a: 0.4 } }),
       // gavião: mergulho -> freio com garras à frente -> golpe -> pousa e procura -> decola
       hawk({
@@ -440,7 +337,7 @@ export const poseTest = scene({
     hawk({ name: 'asa recolhendo', x: 1180, y: 330, s: 0.8, asa: ASA.recolhe }),
     hawk({ name: 'mergulho', x: 1640, y: 300, s: 0.8, rot: 50, asa: ASA.dobrada, cabeca: -30 }),
     hawk({ name: 'golpe', x: 300, y: 760, s: 0.8, rot: -10, asa: ASA.freio, cauda: 1, coxa: 10, pe: [125, 115], dedos: 40 }),
-    hawk({ name: 'pousado', x: 760, y: 900 - 165 * 0.8, s: 0.8, ground: 900, asa: ASA.dobrada, pe: [26, 160], cabeca: 20 }),
+    hawk({ name: 'pousado', x: 760, y: 900 - 165 * 0.8, s: 0.8, rot: -30, ground: 900, asa: ASA.dobrada, coxa: 95, pe: [-58, 152], peF: [-72, 146], dedos: 30, cabeca: 20 }),
     coelho({ name: 'coelho sentado', x: 1150, chao: 900, s: 1.2, ground: 900, orelhas: 0.4 }),
     ...[0.12, 0.45, 0.75].map((p, i) => coelho({ name: `salto ${p}`, x: t => 1400 + i * 240 + p * 150 * 0.9, x0: 1400 + i * 240, chao: 900, s: 0.9, salta: true, orelhas: 1 })),
   ])],

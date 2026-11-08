@@ -315,6 +315,7 @@ rig({ name: 'cão', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 
 | `rig({ bones, pose, ik, skin, ground, plan, name })` | esqueleto animado: `pose` (ângulos por osso), `ik` (cadeias de 2–3 ossos; escolhe a dobra válida), `skin` (desenhos presos aos ossos, ordem automática lado de lá → lado de cá) |
 | `pessoa({...})` | **figura humana base** pronta (homem/mulher): corpo de perfil anatômico, mãos, pés, rosto com piscar/fala/sorriso, cabelos, barba, óculos, roupas, objetos nas mãos |
 | `caminhada(pessoaOpts, { x, chao })` | andar realista sem patinar (devolve `y`, `pose`, `ik` prontos) |
+| `ave({...})`, `ASA`, `bater(t, freq)` | **ave base** (rapina ou pássaro): asa com dobra em Z modelada na própria planta e projetada pela elevação (a borda de fuga fica sempre para trás), poses prontas (planando, freio, dobrada...) e batida realista |
 | `bamoo check` | verificador de anatomia, chão, camadas e texto |
 
 | figura base (`pessoa()`) | com `--rig` (ossos; vermelho = problema) |
@@ -323,7 +324,9 @@ rig({ name: 'cão', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 
 | ![animais](media/animais.jpg) | ![animais rig](media/animais_rig.jpg) |
 
 Pranchas de referência para inspecionar: [`scenes/testes/pessoas.js`](scenes/testes/pessoas.js) (poses),
-[`scenes/testes/andar.js`](scenes/testes/andar.js) (caminhada), `poseTest` em [`scenes/hawk.js`](scenes/hawk.js) (ave e coelho).
+[`scenes/testes/andar.js`](scenes/testes/andar.js) (caminhada), [`scenes/testes/aves.js`](scenes/testes/aves.js) (ciclo de batida e poses de aves), `poseTest` em [`scenes/hawk.js`](scenes/hawk.js) (gavião e coelho).
+
+![aves](media/aves.jpg)
 
 ## Técnicas de animação
 
@@ -386,7 +389,7 @@ Quatro cenas completamente diferentes, construídas só com as primitivas do mot
 | [`scenes/shark.js`](scenes/shark.js) — tubarão caçando um peixe (3 planos) | criatura por espinha + onda, mandíbula articulada, cáusticas, raios subaquáticos, névoa azul, bolhas, motion blur, tremor de câmera |
 | [`scenes/cafe.js`](scenes/cafe.js) — casal se conhecendo numa cafeteria (3 planos) | figuras base `pessoa()` (homem e mulher), `caminhada()` com pés plantados, gestos por IK dentro dos limites (oferecer a cadeira, beber, rir com a mão no peito), piscar/falar/sorrir, interior com janela, chuva, vapor, luzes |
 | [`scenes/rocket.js`](scenes/rocket.js) — foguete decolando (3 planos) | fumaça volumosa iluminada por baixo, chama tremulando, contagem regressiva com luzes (sem texto), câmera acompanhando, transição dia → espaço com estrelas |
-| [`scenes/hawk.js`](scenes/hawk.js) — gavião atacando um coelho (3 planos) | rigs `ave` (asa dobrando em Z com secundárias na ulna e primárias na mão, batida com recolhimento do punho, garras por IK) e `quadrupede/coelho` (salto dirigido pela distância com patas plantadas), capim ao vento, sombra passando, impacto, fuga para a toca |
+| [`scenes/hawk.js`](scenes/hawk.js) — gavião atacando um coelho (3 planos) | base `ave()` (asa anatômica projetada: batida, mergulho com asas fechadas, freio com garras à frente, pouso e decolagem) e rig `quadrupede/coelho` (salto dirigido pela distância com patas plantadas), capim ao vento, sombra passando, impacto, fuga e espiada da toca (recortada na linha do chão) |
 
 Tempos de render (1080p, 30 fps, Ryzen 9 5900X, 20 processos): ~11–12 quadros/s — cada filme de ~17 s (≈520 quadros)
 leva ~50 s. Prévias com `--scale 0.5` são ~3–4× mais rápidas; `still`/`sheet` saem em 1–3 s.
@@ -405,6 +408,7 @@ src/
   rig.js              esqueletos: FK, IK com limites, peles presas aos ossos
   anatomy.js          esqueletos de referência (humano, quadrúpede, ave, peixe) e regras de proporção
   pessoa.js           figura humana base (homem/mulher) + caminhada anatômica
+  ave.js              ave base (rapina/pássaro) com asa anatômica projetada + poses de voo
   check.js            verificador (bamoo check)
   textures.js         texturas procedurais
   fonts.js            fontes embutidas
