@@ -1,0 +1,33 @@
+{
+  "name": "bamoonimation",
+  "version": "0.1.0",
+  "description": "Motor de animação 2D ilustrada (estilo explainer/mid-century) feito para agentes de IA escreverem cenas em código e renderizarem vídeo em qualquer FPS.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "bamoo": "bin/bamoo.js"
+  },
+  "scripts": {
+    "bench": "node bin/bamoo.js bench",
+    "render:all": "node bin/bamoo.js render scenes/shark.js && node bin/bamoo.js render scenes/cafe.js && node bin/bamoo.js render scenes/rocket.js && node bin/bamoo.js render scenes/hawk.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "animation",
+    "2d",
+    "illustration",
+    "ai-agents",
+    "skia",
+    "ffmpeg",
+    "motion-graphics"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@napi-rs/canvas": "^1.1.0"
+  }
+}
