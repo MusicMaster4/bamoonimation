@@ -286,7 +286,6 @@ const shot1 = scene({
     ]),
     layer({ z: 0.5 }, [kelp(-60, 1150, 900, 6, '#2f4d2a', 30), kelp(80, 1200, 760, 7, '#36552d', 26), rock(2050, 1180, 700, 300, '#183142', 41), bubbles(3, [1900, 1050])]),
   ],
-  captions: [[0.8, 5.6, 'No recife, um peixinho se distrai com o almoço...']],
   fadeIn: 0.8,
 });
 
@@ -306,7 +305,6 @@ const shot2 = scene({
     ]),
     layer({ z: 0.45 }, [bubbles(11, [300, 1150], 2, [6, 16]), snow(12, 8)]),
   ],
-  captions: [[0.6, 4.8, '...sem perceber quem se aproxima pelas sombras.']],
 });
 
 // ---------------------------------------------------------------- plano 3: a caçada
@@ -345,7 +343,6 @@ const shot3 = scene({
     ]),
     layer({ z: 0.5 }, [kelp(2100, 1250, 900, 10, '#2f4d2a', 30), bubbles(15, [1950, 1100], 2, [6, 14])]),
   ],
-  captions: [[4.1, 5.6, 'No oceano, cada segundo conta.']],
   fadeOut: 0.9,
 });
 

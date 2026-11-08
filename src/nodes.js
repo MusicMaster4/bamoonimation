@@ -65,6 +65,18 @@ export const img = (src, p = {}) => mk('img', { src, ...p });
 export const particles = (o = {}) => mk('particles', o);
 /** Raios de luz suaves (sol pela janela, luz subaquática, holofote). */
 export const rays = (o = {}) => mk('rays', o);
+/**
+ * Esqueleto com peles (pessoas, animais). Ver docs/ANATOMIA.md.
+ * { name, plan, bones (use skeleton(...)), pose: { osso: ângulo|kf|fn }, ik: [{ chain, target, endAng, bend }],
+ *   skin: [{ bone, node } | { limb: [ossos], w, fill } | { spine: [ossos], top, bot, fill } | { draw: S => nó }],
+ *   ground (y do chão nas coordenadas da camada, p/ o verificador), clamp (padrão true), order ('auto'|'manual') }
+ * + props de transformação (x, y, rot, s, flip...). Peles com `bone` são desenhadas na POSE DE DESCANSO,
+ * em coordenadas do rig, e acompanham o osso. Ordem automática: lado de lá (F) -> meio -> lado de cá (N).
+ */
+export const rig = (o = {}) => {
+  if (!o.bones) throw new Error('bamoo: rig({...}) precisa de bones (use skeleton("humano"|"quadrupede"|"ave"|"peixe", {...}))');
+  return mk('rig', { ...o, skin: o.skin ?? [] });
+};
 /** Escape: desenho livre com a API do canvas. fn(ctx, t, env). */
 export const custom = (fn, p = {}) => mk('custom', { fn, ...p });
 /** Nó dinâmico: fn(t, env) => nó | [nós]. */

@@ -10,6 +10,7 @@ import { blobPath, polyPath, curvePath, taperPath, ik2, widthFn } from './geom.j
 import { flat } from './nodes.js';
 import { texCanvas, TEX_MODE } from './textures.js';
 import { loadFonts, fontFamily } from './fonts.js';
+import { solveRig, restPose, chainPoints, limbPath, spinePoints, bindMatrix } from './rig.js';
 
 const { createCanvas, Path2D, DOMMatrix, PathOp, Image, ImageData } = canvas;
 const { PI, cos, sin, tan, abs, hypot, min, max, floor, round, exp, sqrt } = Math;
@@ -97,7 +98,7 @@ export class Renderer {
    * @param root cena (scene) ou filme (film)
    * @param opts { scale, fps, debug }
    */
-  constructor(root, { scale = 1, fps = 30, debug = false } = {}) {
+  constructor(root, { scale = 1, fps = 30, debug = false, rig = false, layers = false } = {}) {
     loadFonts();
     if (!root || (root.kind !== 'scene' && root.kind !== 'film'))
       throw new Error('bamoo: o módulo da cena deve exportar default scene({...}) ou film([...])');
@@ -109,6 +110,9 @@ export class Renderer {
     this.s = this.W / this.DW;
     this.fps = fps;
     this.debug = debug;
+    this.debugRig = rig; // desenha esqueletos por cima (ossos, juntas, violações em vermelho, alvos IK)
+    this.debugLayers = layers; // tinge cada camada com uma cor e mostra a legenda de z
+    this.probe = null; // usado pelo verificador (bamoo check): coleta estado dos rigs e textos
     this.main = createCanvas(this.W, this.H);
     this.pool = [];
     this.smallPool = [];
@@ -252,6 +256,8 @@ export class Renderer {
 
   renderScene(entry, t, cv) {
     const sc = entry.sc;
+    this.curScene = entry.i;
+    this.layerLegend = [];
     const look = this.lookOf(sc, t);
     const env = { t, dur: sc.dur, W: this.DW, H: this.DH, fps: this.fps, scale: this.s };
     const n = round(look.mblur || 0);
@@ -338,7 +344,7 @@ export class Renderer {
     } else if (look.haze && z > 1 && !L.fixed) hazeA = (look.haze.a ?? 0.5) * (1 - 1 / z);
     const alpha = L.alpha === undefined ? 1 : V(L.alpha, t, env);
     if (alpha <= 0.002) return;
-    const off = blurPx > 0.4 || hazeA > 0.004 || alpha < 0.999 || L.blend || L.glow;
+    const off = blurPx > 0.4 || hazeA > 0.004 || alpha < 0.999 || L.blend || L.glow || this.debugLayers;
     // camadas desfocadas são desenhadas direto em meia/quarta resolução (o desfoque esconde a perda)
     const F = blurPx >= 2 && !L.glow ? (blurPx < 6 ? 2 : 4) : 1;
     const tw = max(2, round(this.W / F)), th = max(2, round(this.H / F));
@@ -349,11 +355,22 @@ export class Renderer {
     const lm = localMat(L, t, env);
     if (lm) tctx.transform(...lm);
     const inh = this.inherit(base, L, t, env);
+    this.curLayerM = tctx.getTransform();
     const kids = typeof L.children === 'function' ? flat(L.children(t, env)) : L.children;
     for (const c of kids) this.drawNode(tctx, c, inh, t, env);
     tctx.restore();
     if (!off) return;
     resetCtx(tctx);
+    if (this.debugLayers) {
+      const hue = (this.layerLegend.length * 67) % 360;
+      const col = `hsl(${hue}, 85%, 55%)`;
+      this.layerLegend.push({ z: L.fixed ? 'fixa' : z, col, n: kids.length });
+      tctx.globalCompositeOperation = 'source-atop';
+      tctx.globalAlpha = 0.45;
+      tctx.fillStyle = col;
+      tctx.fillRect(0, 0, tw, th);
+      resetCtx(tctx);
+    }
     if (hazeA > 0.004) {
       tctx.globalCompositeOperation = 'source-atop';
       tctx.globalAlpha = min(1, hazeA);
@@ -490,6 +507,9 @@ export class Renderer {
         break;
       case 'rays':
         this.drawRays(ctx, n, inh, t, env);
+        break;
+      case 'rig':
+        this.drawRig(ctx, n, inh, t, env);
         break;
       case 'custom':
         n.fn(ctx, t, env, this);
@@ -908,6 +928,7 @@ export class Renderer {
   }
 
   drawText(ctx, n, inh, t, env) {
+    if (this.probe) this.probe.texts.push({ scene: this.curScene, t, str: String(V(n.str, t, env)).split('\n').join(' / ').slice(0, 40) });
     let str = String(V(n.str, t, env));
     const reveal = n.reveal === undefined ? 1 : V(n.reveal, t, env);
     if (reveal < 1) str = str.slice(0, floor(str.length * clamp(reveal)));
@@ -1249,6 +1270,7 @@ export class Renderer {
     resetCtx(ctx);
     ctx.putImageData(new ImageData(new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.length), this.W, this.H), 0, 0);
     if (this.debug) this.drawGrid(ctx);
+    if (this.debugLayers && this.layerLegend?.length) this.drawLayerLegend(ctx);
     return this.out;
   }
 
@@ -1354,6 +1376,132 @@ export class Renderer {
         buf[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
       }
     }
+  }
+
+  // ---------- esqueletos ----------
+  drawRig(ctx, n, inh, t, env) {
+    const sol = solveRig(n, t, env);
+    const { S } = sol;
+    if (this.probe) {
+      const M = this.curLayerM ? this.curLayerM.inverse().multiply(ctx.getTransform()) : ctx.getTransform();
+      this.probe.rigs.push({ scene: this.curScene, rig: n, name: n.name ?? `rig#${n.id}`, t, S, issues: sol.issues, M, ground: n.ground === undefined ? undefined : V(n.ground, t, env) });
+    }
+    const rest = restPose(n);
+    const inh2 = this.inherit(inh, n, t, env);
+    if (!n._skin) {
+      const RANK = { far: 0, mid: 1, near: 2 };
+      const sideOf = nm => (n._bones.find(b => b.name === nm)?.side ?? 'mid');
+      n._skin = (n.skin ?? []).filter(Boolean).map((it, idx) => {
+        const o = it.type ? { node: it } : { ...it };
+        o.kind = o.bone ? 'bone' : o.limb ? 'limb' : o.spine ? 'spine' : o.draw ? 'draw' : 'node';
+        o.side ??= o.bone ? sideOf(o.bone) : o.limb ? sideOf(o.limb[0]) : o.spine ? sideOf(o.spine[0]) : 'mid';
+        o.idx = idx;
+        o.rank = RANK[o.side] ?? 1;
+        return o;
+      });
+      if (n.order !== 'manual') n._skin.sort((a, b) => a.rank - b.rank || a.idx - b.idx);
+    }
+    for (const it of n._skin) {
+      if (it.show && (t < it.show[0] || t >= it.show[1])) continue;
+      if (it.hidden && V(it.hidden, t, env)) continue;
+      ctx.save();
+      if (it.alpha !== undefined) ctx.globalAlpha *= V(it.alpha, t, env);
+      if (it.kind === 'bone') {
+        const cur = S.get(it.bone);
+        if (!cur) throw new Error(`bamoo rig "${n.name ?? n.id}": pele presa a osso inexistente "${it.bone}"`);
+        if (it.local) {
+          ctx.translate(cur.x0, cur.y0);
+          ctx.rotate((cur.abs * PI) / 180);
+        } else ctx.transform(...bindMatrix(rest.get(it.bone), cur));
+        this.drawNode(ctx, it.node, inh2, t, env);
+      } else if (it.kind === 'limb') {
+        const w = typeof it.w === 'function' ? it.w : deepV(it.w, t, env);
+        const p = limbPath(chainPoints(S, it.limb), w, { joint: it.joint ?? 0.7, caps: it.caps ?? 'round' });
+        this.drawShape(ctx, it, { path: p, bb: p.getBounds() }, inh2, t, env, Array.isArray(w) ? max(...w) : typeof w === 'number' ? w : undefined);
+      } else if (it.kind === 'spine') {
+        const p = blobPath(spinePoints(S, it.spine, deepV(it.top, t, env), deepV(it.bot ?? it.top, t, env), it.n ?? 16));
+        this.drawShape(ctx, it, { path: p, bb: p.getBounds() }, inh2, t, env);
+      } else if (it.kind === 'draw') {
+        for (const c of flat(it.draw(S, t, env))) this.drawNode(ctx, c, inh2, t, env);
+      } else this.drawNode(ctx, it.node, inh2, t, env);
+      ctx.restore();
+    }
+    if (this.debugRig) this.drawSkeleton(ctx, sol);
+  }
+
+  drawSkeleton(ctx, sol) {
+    const M = ctx.getTransform();
+    const ds = sqrt(abs(M.a * M.d - M.b * M.c)) || 1;
+    const bad = new Set(sol.issues.filter(i => i.kind === 'limite').map(i => i.bone));
+    const far = new Set(sol.issues.filter(i => i.kind === 'alcance').flatMap(i => i.chain));
+    ctx.save();
+    resetCtx(ctx);
+    ctx.setTransform(M);
+    ctx.lineCap = 'round';
+    const list = [...sol.S.values()].sort((a, b) => ({ far: 0, mid: 1, near: 2 })[a.side] - ({ far: 0, mid: 1, near: 2 })[b.side]);
+    for (const s of list) {
+      const err = bad.has(s.name) || far.has(s.name);
+      const col = err ? '#ff2d55' : s.side === 'near' ? '#ff9f43' : s.side === 'far' ? '#4aa3ff' : '#ffe14d';
+      ctx.strokeStyle = '#000a';
+      ctx.lineWidth = (err ? 8 : 6) / ds;
+      if (s.len > 0) {
+        ctx.beginPath();
+        ctx.moveTo(s.x0, s.y0);
+        ctx.lineTo(s.x1, s.y1);
+        ctx.stroke();
+        ctx.strokeStyle = col;
+        ctx.lineWidth = (err ? 5 : 3) / ds;
+        ctx.stroke();
+      }
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(s.x0, s.y0, 4.5 / ds, 0, TAU);
+      ctx.fill();
+    }
+    ctx.strokeStyle = '#2dff9a';
+    ctx.lineWidth = 2 / ds;
+    for (const tg of sol.targets) {
+      const [x, y] = tg.p, r = 9 / ds;
+      ctx.beginPath();
+      ctx.moveTo(x - r, y);
+      ctx.lineTo(x + r, y);
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x, y + r);
+      ctx.stroke();
+    }
+    // rótulos no espaço da tela (nunca espelhados)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = `${max(9, 12 * this.s)}px "PT Sans"`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#000c';
+    for (const s of list) {
+      if (!(s.len > 0)) continue;
+      const lx = (s.x0 + s.x1) / 2, ly = (s.y0 + s.y1) / 2;
+      const x = M.a * lx + M.c * ly + M.e, y = M.b * lx + M.d * ly + M.f;
+      ctx.strokeText(s.name, x, y);
+      ctx.fillStyle = bad.has(s.name) ? '#ff8fa6' : '#fff';
+      ctx.fillText(s.name, x, y);
+    }
+    ctx.restore();
+  }
+
+  drawLayerLegend(ctx) {
+    const s = max(0.5, this.s);
+    ctx.save();
+    ctx.font = `${14 * s}px "PT Sans"`;
+    ctx.textBaseline = 'middle';
+    this.layerLegend.forEach((L, i) => {
+      const y = (14 + i * 22) * s;
+      ctx.fillStyle = '#000b';
+      ctx.fillRect(8 * s, y - 9 * s, 150 * s, 18 * s);
+      ctx.fillStyle = L.col;
+      ctx.fillRect(12 * s, y - 6 * s, 12 * s, 12 * s);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(`camada ${i}  z=${L.z}  (${L.n} nós)`, 30 * s, y);
+    });
+    ctx.restore();
   }
 
   drawGrid(ctx) {

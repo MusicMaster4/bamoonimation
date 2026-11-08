@@ -42,5 +42,4 @@ export default scene({
       blob([[-100, 1100], [-100, 960], [300, 1000], [600, 1100]], { fill: '#2f2440' }),
     ]),
   ],
-  captions: [[0.5, 3, 'Um teste de camadas, luz e textura.']],
 });

@@ -3,7 +3,7 @@
 
 export {
   scene, film, layer, G, blob, poly, circle, ellipse, rect, path, line, taper, limb, text, img,
-  particles, rays, custom, dyn, lin, rad, scatter, rep, flat,
+  particles, rays, custom, dyn, lin, rad, scatter, rep, flat, rig,
 } from './nodes.js';
 
 export {
@@ -17,3 +17,6 @@ export { ik2, wave, ellipsePts, xf, mirror, polar, bboxPts, along, body, sampleC
 export { registerFont, FONT_KEYS } from './fonts.js';
 export { Renderer, DEFAULT_LOOK } from './render.js';
 export { TEXTURES } from './textures.js';
+export { skeleton, PLAN_RULES } from './anatomy.js';
+export { solveRig, restPose, chainPoints } from './rig.js';
+export { pessoa, caminhada, cabecaPerfil, olho, boca } from './pessoa.js';

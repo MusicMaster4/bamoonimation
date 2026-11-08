@@ -4,12 +4,16 @@
 
 O visual-alvo é o de explainers ilustrados no estilo *mid-century / editorial*: formas chapadas com sombra
 própria em "meia-lua", luz quente e sombras frias, textura de grão e pincel, profundidade de campo
-(fundo enevoado e primeiro plano desfocado), câmera com parallax e legendas manuscritas.
+(fundo enevoado e primeiro plano desfocado) e câmera com parallax. A história é contada com imagem e
+movimento — **sem texto na tela** por padrão.
 
-Não há presets de "tubarão", "pessoa" ou "foguete": o motor oferece **primitivas e técnicas de desenho**
-(formas suaves, pinceladas afinadas, corpos ao redor de uma espinha, membros com IK, partículas, raios
-de luz, camadas de profundidade, sombreamento automático) para que um agente desenhe *qualquer coisa*
-com poucas linhas — e renderize rápido, em paralelo.
+O motor oferece **primitivas e técnicas de desenho** (formas suaves, pinceladas afinadas, corpos ao redor
+de uma espinha, partículas, raios de luz, camadas de profundidade, sombreamento automático) para que um
+agente desenhe *qualquer coisa* com poucas linhas — e renderize rápido, em paralelo. Para personagens há
+**anatomia embutida**: esqueletos de referência (humano, quadrúpede, ave, peixe) com proporções reais e
+limites articulares, uma **figura humana base pronta** (homem e mulher, `pessoa()`), caminhada anatômica
+(`caminhada()`) e um **verificador** (`bamoo check`) que acusa poses impossíveis, pés deslizando,
+camadas fora de ordem e texto na tela.
 
 | Tubarão caçando | Casal na cafeteria |
 |---|---|
@@ -30,10 +34,11 @@ Vídeos completos (prévias em 720p — rode `render` para 1080p/4K em qualquer 
 4. [Conceitos](#conceitos)
 5. [Referência da API](#referência-da-api)
 6. [Como chegar no estilo (boas práticas)](#como-chegar-no-estilo-boas-práticas)
-7. [Técnicas de animação](#técnicas-de-animação)
-8. [Desempenho e tamanho de arquivo](#desempenho-e-tamanho-de-arquivo)
-9. [Os benchmarks](#os-benchmarks)
-10. [Estrutura do repositório](#estrutura-do-repositório)
+7. [Personagens e anatomia](#personagens-e-anatomia)
+8. [Técnicas de animação](#técnicas-de-animação)
+9. [Desempenho e tamanho de arquivo](#desempenho-e-tamanho-de-arquivo)
+10. [Os benchmarks](#os-benchmarks)
+11. [Estrutura do repositório](#estrutura-do-repositório)
 
 ---
 
@@ -72,6 +77,8 @@ Comandos:
 | `still <cena.js> -t 1.5[,3,4.2] [--scale 0.5] [--grid]` | renderiza quadros PNG (padrão: escala 0.5) |
 | `sheet <cena.js> [-n 12] [--cols 4] [--scale 0.25] [--from s] [--to s] [--grid]` | folha de contato JPG — a forma mais barata de "ver" a animação |
 | `render <cena.js> [--fps 30] [--scale 1] [--from s] [--to s] [--workers N] [--crf 18] [--format mp4\|webm\|mov\|gif\|png] [--audio arq]` | vídeo final, renderizado em paralelo |
+| `check <cena.js> [--fps 12] [--allow-text]` | **verificador**: ordem das camadas, texto na tela, articulações fora do limite, membros além do alcance, proporções, simetria, pés afundando/deslizando, teletransportes. Sai com código 1 se houver erro |
+| `still/sheet ... --rig` / `--layers` | sobreposições de depuração: esqueletos (vermelho = problema, cruz verde = alvo IK) / cada camada tingida com legenda de z |
 | `info <cena.js>` | duração, planos, camadas, nº de quadros por FPS |
 | `bench <cena.js>` | mede ms/quadro |
 
@@ -88,8 +95,12 @@ O objetivo é **gastar poucos tokens** e **convergir rápido**:
    com várias poses lado a lado, como em `scenes/hawk.js`. Ajuste até ficar bom, depois anime.
 3. **Tempo e movimento** — `sheet` mostra 12 instantes numa única imagem. Use `--from/--to` para olhar um
    trecho (ex.: um impacto). Isso substitui assistir ao vídeo.
-4. **Vídeo** — `render --scale 0.5` para prévia, depois `render` final (1080p) ou `--scale 2` (4K).
-5. Escreva cada plano como uma `scene` e junte com `film([...])` com transições.
+4. **Verificação** — `check` até zerar os erros; `sheet --rig` nos trechos de ação dos personagens.
+5. **Vídeo** — `render --scale 0.5` para prévia, depois `render` final (1080p) ou `--scale 2` (4K).
+6. Escreva cada plano como uma `scene` e junte com `film([...])` com transições.
+
+Regras padrão para agentes: **sem texto na tela** (a menos que o pedido peça), **personagens sempre com
+esqueleto** (`pessoa()` / `rig()`), e **`check` sem erros** antes do render. Veja [`docs/ANATOMIA.md`](docs/ANATOMIA.md).
 
 Arquivo [`AGENTS.md`](AGENTS.md) é a referência compacta pensada para caber no contexto de um agente.
 
@@ -107,7 +118,6 @@ const plano1 = scene({
   look: { sun: [-0.6, -0.8] },              // luz, névoa, grão, grade de cor... (ver abaixo)
   camera: { x: kf([0, 900], [6, 1020]), dof: 6 },
   layers: [ layer({ z: 4 }, [...]), layer({ z: 1 }, [...]), layer({ z: 0.5 }, [...]) ],
-  captions: [[0.5, 4, 'Legenda manuscrita']],
   fadeIn: 0.6, fadeOut: 0.8,
 });
 export default film([plano1, plano2], { trans: 'cross', d: 0.6 }); // cross | black | white | wipe | cut
@@ -276,7 +286,44 @@ O que faz o visual "parecer desenho de verdade" — aprendido construindo os ben
   pequeno "soco" de zoom.
 - Ação rápida: `mblur` só no trecho rápido (custa ×N), partículas `stretch`, rastros.
 - Câmera sempre com movimento lento (pan/zoom/dolly) — dá vida mesmo a planos parados.
-- Legendas curtas e com respiro (`captions`), fonte manuscrita como na referência.
+- Sem texto: conte com enquadramento, expressão e ação (ex.: a contagem do foguete é feita com luzes que
+  acendem). Se o pedido exigir texto, `captions: [[t0, t1, 'texto']]` e `text()` existem (fonte manuscrita) —
+  rode o `check` com `--allow-text`.
+
+## Personagens e anatomia
+
+Guia completo: [`docs/ANATOMIA.md`](docs/ANATOMIA.md). Em resumo:
+
+```js
+import { pessoa, caminhada, rig, skeleton, kf, talk } from 'bamoonimation';
+
+const CHAO = 980;
+const ELA = { sexo: 'f', altura: 700, cabelo: 'ondulado', roupa: 'vestido', cores: { cima: '#2e8a83', baixo: '#2e8a83' } };
+// em pé, falando e sorrindo, segurando uma xícara
+pessoa({ ...ELA, x: 500, y: CHAO - pessoa.quadril(ELA), ground: CHAO,
+  ik: { maoN: [70, -110], angMaoN: -6 }, segura: { N: xicara }, rosto: { fala: t => talk(t, 1, 3), sorriso: 0.6 } });
+// andando: pé plantado, rolamento do pé, quadril em arco, braços em oposição
+const x = kf([0, 0], [4, 1550, 'sine']);
+pessoa({ ...ELA, x: t => x.at(t), ground: CHAO, ...caminhada(ELA, { x, chao: CHAO }) });
+// animal: esqueleto de referência + peles presas aos ossos
+rig({ name: 'cão', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 300, variante: 'cao' }), pose: {...}, ik: [...], skin: [...] });
+```
+
+| peça | o que faz |
+|---|---|
+| `skeleton(plano, opts)` | ossos com proporções reais e limites articulares: `humano` (`altura, cabecas, sexo`), `quadrupede` (`altura, variante: cao/gato/cavalo/coelho`), `ave` (`tamanho`), `peixe` (`comprimento, segmentos`) |
+| `rig({ bones, pose, ik, skin, ground, plan, name })` | esqueleto animado: `pose` (ângulos por osso), `ik` (cadeias de 2–3 ossos; escolhe a dobra válida), `skin` (desenhos presos aos ossos, ordem automática lado de lá → lado de cá) |
+| `pessoa({...})` | **figura humana base** pronta (homem/mulher): corpo de perfil anatômico, mãos, pés, rosto com piscar/fala/sorriso, cabelos, barba, óculos, roupas, objetos nas mãos |
+| `caminhada(pessoaOpts, { x, chao })` | andar realista sem patinar (devolve `y`, `pose`, `ik` prontos) |
+| `bamoo check` | verificador de anatomia, chão, camadas e texto |
+
+| figura base (`pessoa()`) | com `--rig` (ossos; vermelho = problema) |
+|---|---|
+| ![pessoas](media/pessoas.jpg) | ![pessoas rig](media/pessoas_rig.jpg) |
+| ![animais](media/animais.jpg) | ![animais rig](media/animais_rig.jpg) |
+
+Pranchas de referência para inspecionar: [`scenes/testes/pessoas.js`](scenes/testes/pessoas.js) (poses),
+[`scenes/testes/andar.js`](scenes/testes/andar.js) (caminhada), `poseTest` em [`scenes/hawk.js`](scenes/hawk.js) (ave e coelho).
 
 ## Técnicas de animação
 
@@ -337,9 +384,9 @@ Quatro cenas completamente diferentes, construídas só com as primitivas do mot
 | cena | o que exercita |
 |---|---|
 | [`scenes/shark.js`](scenes/shark.js) — tubarão caçando um peixe (3 planos) | criatura por espinha + onda, mandíbula articulada, cáusticas, raios subaquáticos, névoa azul, bolhas, motion blur, tremor de câmera |
-| [`scenes/cafe.js`](scenes/cafe.js) — casal se conhecendo numa cafeteria (3 planos) | personagens humanos em perfil (IK, piscar, falar, sorrir, andar com `gait`), interior com janela, chuva, vapor, luzes, quadro-negro com texto, diálogo em legendas |
-| [`scenes/rocket.js`](scenes/rocket.js) — foguete decolando (3 planos) | fumaça volumosa iluminada por baixo, chama tremulando, contagem regressiva, câmera acompanhando, transição dia → espaço com estrelas |
-| [`scenes/hawk.js`](scenes/hawk.js) — gavião atacando um coelho (3 planos) | ave com asas de penas e garras por IK, coelho com ciclo de pulo, capim ao vento, sombra passando, impacto com terra/capim/penas, fuga para a toca |
+| [`scenes/cafe.js`](scenes/cafe.js) — casal se conhecendo numa cafeteria (3 planos) | figuras base `pessoa()` (homem e mulher), `caminhada()` com pés plantados, gestos por IK dentro dos limites (oferecer a cadeira, beber, rir com a mão no peito), piscar/falar/sorrir, interior com janela, chuva, vapor, luzes |
+| [`scenes/rocket.js`](scenes/rocket.js) — foguete decolando (3 planos) | fumaça volumosa iluminada por baixo, chama tremulando, contagem regressiva com luzes (sem texto), câmera acompanhando, transição dia → espaço com estrelas |
+| [`scenes/hawk.js`](scenes/hawk.js) — gavião atacando um coelho (3 planos) | rigs `ave` (asa dobrando em Z com secundárias na ulna e primárias na mão, batida com recolhimento do punho, garras por IK) e `quadrupede/coelho` (salto dirigido pela distância com patas plantadas), capim ao vento, sombra passando, impacto, fuga para a toca |
 
 Tempos de render (1080p, 30 fps, Ryzen 9 5900X, 20 processos): ~11–12 quadros/s — cada filme de ~17 s (≈520 quadros)
 leva ~50 s. Prévias com `--scale 0.5` são ~3–4× mais rápidas; `still`/`sheet` saem em 1–3 s.
@@ -355,10 +402,16 @@ src/
   geom.js             splines, taper, body, wave, along, ik2
   color.js            cores e misturas em OKLab
   render.js           renderer Skia (camadas, sombreamento, texturas, partículas, raios, pós)
+  rig.js              esqueletos: FK, IK com limites, peles presas aos ossos
+  anatomy.js          esqueletos de referência (humano, quadrúpede, ave, peixe) e regras de proporção
+  pessoa.js           figura humana base (homem/mulher) + caminhada anatômica
+  check.js            verificador (bamoo check)
   textures.js         texturas procedurais
   fonts.js            fontes embutidas
   cli.js, worker.js   linha de comando e render paralelo
 scenes/               os 4 benchmarks + hello.js (exemplo mínimo)
+scenes/testes/        pranchas de referência (pessoas, caminhada, poses de animais)
+docs/ANATOMIA.md      guia de anatomia para personagens
 assets/fonts/         fontes livres (OFL/Apache) com licenças
 media/                prévias dos benchmarks
 AGENTS.md             referência compacta para agentes

@@ -4,83 +4,88 @@ Você escreve **um arquivo `.js` por animação** que exporta `scene({...})` ou 
 Tudo é função contínua do tempo, então renderiza em qualquer FPS. Coordenadas de design: **1920×1080**
 (origem no canto superior esquerdo, y para baixo, ângulos em graus).
 
+## Regras
+
+1. **Sem texto na tela** (legendas, letreiros, placas, números) a menos que o pedido peça texto. Conte a
+   história com imagem e movimento; o verificador acusa texto como erro.
+2. **Pessoas e animais sempre com esqueleto** (`pessoa()` ou `rig({ bones: skeleton(...) })`). Nunca
+   desenhe membros soltos sem limites articulares. Leia `docs/ANATOMIA.md` antes de animar personagens.
+3. **Rode `bamoo check` até zerar os erros** antes do render final.
+
 ## Fluxo (barato em tokens)
 
 ```bash
-node bin/bamoo.js new cenas/minha.js            # cria a partir do modelo
-node bin/bamoo.js sheet cenas/minha.js          # 1 imagem com 12 momentos (escala 0.25)
-node bin/bamoo.js still cenas/minha.js -t 2.5 --grid   # quadro com grade de coordenadas
-node bin/bamoo.js render cenas/minha.js --fps 30       # vídeo final em out/minha.mp4
+node bin/bamoo.js new cenas/minha.js                    # cria a partir do modelo
+node bin/bamoo.js still cenas/minha.js -t 2.5 --grid    # quadro com grade de coordenadas
+node bin/bamoo.js still cenas/minha.js -t 2.5 --rig     # esqueletos por cima (vermelho = problema)
+node bin/bamoo.js still cenas/minha.js -t 2.5 --layers  # cada camada tingida + legenda de z
+node bin/bamoo.js sheet cenas/minha.js [--from a --to b] # 12 momentos numa imagem
+node bin/bamoo.js check cenas/minha.js                  # camadas, texto, anatomia, pés, saltos
+node bin/bamoo.js render cenas/minha.js --fps 30        # vídeo em out/minha.mp4
 ```
 
-1. Esboce composição e cores com `still --grid` (escala 0.5).
-2. Anime e confira o tempo com `sheet` (use `--from/--to` para focar um trecho).
-3. Só renderize vídeo no fim. Use `--scale 0.5` para prévias rápidas.
-4. Para iterar num personagem isolado, exporte uma cena nomeada (`export const teste = scene(...)`) e
-   aponte um arquivo de 2 linhas para ela (ver `scenes/hawk.js` → `poseTest`).
+Para iterar num personagem, exporte uma cena nomeada com várias poses lado a lado
+(`export const poseTest = scene(...)`, ver `scenes/hawk.js`) e aponte um arquivo de 2 linhas para ela.
 
-## Esqueleto
+## Esqueleto de cena
 
 ```js
-import { scene, film, layer, G, blob, circle, rect, taper, limb, particles, rays, text, lin, rad, kf, osc } from 'bamoonimation';
+import { scene, film, layer, G, blob, circle, rect, taper, particles, rays, lin, rad, kf, osc, pessoa, caminhada } from 'bamoonimation';
 
 const shot = scene({
   dur: 6, bg: lin(90, '#8fb8de', '#f3d3b0'),
   look: { sun: [-0.6, -0.8], shadow: '#3e3470', haze: { c: '#c9d6e3', a: 0.5 } },
   camera: { x: kf([0, 900], [6, 1020]), zoom: kf([0, 1], [6, 1.08]), dof: 6 },
   layers: [ layer({ z: 6 }, [/* fundo */]), layer({ z: 1 }, [/* ação */]), layer({ z: 0.5 }, [/* 1º plano */]) ],
-  captions: [[0.5, 4, 'Legenda manuscrita.']], fadeIn: 0.6,
+  fadeIn: 0.6,
 });
 export default film([shot /*, shot2 */], { trans: 'cross', d: 0.6 });
 ```
+Camadas: liste do **fundo (z maior) para a frente (z menor)**.
+
+## Personagens
+
+```js
+const CHAO = 980, M = { sexo: 'm', altura: 740, cabelo: 'curto', barba: 'curta', roupa: 'jaqueta' };
+pessoa({ ...M, x: 400, y: CHAO - pessoa.quadril(M), ground: CHAO,
+  ik: { maoN: [70, -110], angMaoN: -6 }, rosto: { fala: t => talk(t, 1, 3), sorriso: 0.5 }, segura: { N: xicara } });
+const passos = caminhada(M, { x: kf([0, 0], [4, 1500, 'sine']), chao: CHAO });   // andar anatômico
+pessoa({ ...M, x: t => ..., ground: CHAO, ...passos });
+rig({ name: 'coelho', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 120, variante: 'coelho' }),
+      pose: {...}, ik: [{ chain: ['femurN','tibiaN','metaN'], target: t => [x, y], endAng: 0 }], skin: [...] });
+```
+- `skeleton('humano'|'quadrupede'|'ave'|'peixe', {...})`: ossos com proporções reais e limites. Sufixo N = lado
+  de cá, F = lado de lá (ordem de desenho automática F → meio → N).
+- IK: `{ chain: [a, b(, c)], target, endAng }` — alvo = ponta do 2º osso; escolhe a dobra válida sozinho.
+- Peles: `{ bone, node }` (desenhe na pose de descanso), `{ limb: [ossos], w }`, `{ spine: [ossos], top, bot }`, `{ draw: S => nó }`.
+- `ground: y` no rig → o verificador checa pé afundando/deslizando.
 
 ## Valores animáveis (qualquer prop, inclusive geometria)
-- fixo: `x: 300`
-- keyframes: `x: kf([0, 100], [2, 500, 'out'], [3, 450, 'back'])` — easing vale para o trecho que **chega** na chave (padrão `inOut`). Interpola números, arrays de pontos, cores e objetos. `.loop()`, `.delay(s)`.
-- função: `x: t => 100 + 50 * Math.sin(t)` (t = segundos da cena)
-- helpers: `osc(freq, amp, fase, base)`, `wig(freq, amp, seed, base)`, `spline([t,[x,y]], ...)` + `move(pos, {orient})`, `tw(t, t0, t1, a, b, ease)`, `prog`, `cycle`, `pulse`, `decay`, `spring`, `blink(t, seed)`, `talk(t, t0, t1, seed)`, `gait(dist, {stride, lift})`, `noise`, `rng(seed)`.
+- fixo `x: 300` · keyframes `kf([0, 100], [2, 500, 'out'])` (easing do trecho que chega; `.loop()`, `.delay()`) · função `t => ...`
+- helpers: `osc wig spline move heading tw prog cycle pulse decay spring blink talk gait gaitPhase noise rng`
 - easings: linear in out inOut in2 out2 inOut2 sine expoIn expoOut expo back backIn backInOut elastic bounce step
 
 ## Nós
 | fábrica | uso |
 |---|---|
-| `G(props, filhos)` | grupo/transformação. `filhos` pode ser `t => [...]`. `clip: forma`, `merge: true` (une filhos numa silhueta sombreada) |
-| `layer({ z }, filhos)` | profundidade: z>1 fundo (parallax menor, névoa, desfoque), z<1 primeiro plano. `fixed: true` = sem câmera (títulos/HUD) |
-| `blob(pts)` | forma suave pelos pontos `[x,y]` / `[x,y,r]` (r=0 quina viva). **Principal ferramenta de desenho** |
-| `poly(pts, {r})`, `rect(x,y,w,h,{r})`, `circle(cx,cy,r)`, `ellipse(cx,cy,rx,ry)`, `path('M..')` | primitivas |
-| `taper(pts, larguras)` | pincelada afinada: cabelo, caudas, galhos, capim, dobras. larguras: n \| [a,b,...] \| u=>w. `grow` 0..1 desenha |
-| `line(pts, {stroke, lw, dash, grow})` | traço suave |
-| `limb(a, b, [l1,l2], [w0,wJ,w1], {bend, end, endAbs})` | braço/perna com IK de 2 ossos; `end` = mão/pé |
-| `text(str, {font, size, fill, align, reveal})` | fontes: `hand` `serif` `mono` `sans` `script` |
-| `particles({...})` | fumaça, bolhas, poeira, chuva, faíscas (analítico, sem estado) |
-| `rays({at, ang, spread, n, len, w, c, a})` | feixes de luz |
-| `dyn(t => nós)` | geometria procedural por quadro (criaturas com espinha, IK manual) |
-| `custom((ctx, t) => ...)` | escape para a API canvas |
-| `img(arquivo, {w, h})` | imagem do disco |
+| `G(props, filhos)` | grupo. `clip: forma`, `merge: true` (une filhos numa silhueta sombreada) |
+| `layer({ z }, filhos)` | profundidade (parallax, névoa, desfoque). `fixed: true` = sem câmera |
+| `blob(pts)` | forma suave `[x,y]`/`[x,y,r]` (r=0 quina). Principal ferramenta |
+| `poly rect circle ellipse path` | primitivas |
+| `taper(pts, larguras)` | pincelada afinada (cabelo, cauda, capim, dobras) |
+| `line(pts, {stroke, lw})` | traço |
+| `rig({...})`, `pessoa({...})` | personagens com esqueleto |
+| `particles({...})`, `rays({...})` | fumaça, bolhas, poeira, chuva / feixes de luz |
+| `dyn(t => nós)`, `custom((ctx,t) => ...)`, `img(arq)` | procedural / canvas / imagem |
 
-Transformação (todos): `x y rot s sx sy px py skx flip alpha show:[t0,t1]`.
-Estilo: `fill` (cor, `lin(ang, ...cores)`, `rad(c, ...cores)`, ou `['#a','#b']`), `stroke lw`,
-`shade` (sombra própria, 0..1 ou `{a, d, dp, soft, c}`), `hl` (realce do lado da luz), `tex`
-(`grain speckle brush paper hatch blot` ou `{k, a, s, rot}`), `glow` (`r` ou `{r, c, a}`), `blur`, `blend`, `drop`.
-`fill shade hl tex sun light shadow stroke lw` são **herdados** de grupos/camadas.
-
-## Geometria útil
-`body(espinha, topo, baixo)` → contorno de criatura ao redor de uma espinha (cauda→cabeça, voltada p/ +x);
-`wave(pts, t, {amp, freq, len, dir})` → ondulação (nadar, balançar); `along(pts, u)` → ponto+ângulo na curva;
-`ik2(a, b, l1, l2, bend)`; `profile([...])(u)`; `xf`, `mirror`, `ellipsePts`, `polar`.
+Transformação: `x y rot s sx sy px py skx flip alpha show:[t0,t1]`. Estilo: `fill stroke lw shade hl tex glow blur blend drop`
+(`fill shade hl tex sun light shadow stroke lw` são herdados). Pinturas: `lin(ang, ...cores)`, `rad(c, ...cores)`, `['#a','#b']`.
 
 ## Câmera e look
-`camera: { x, y, zoom, rot, dolly, focus, dof, shake }` — `dolly` dá parallax de aproximação; `dof` = desfoque por profundidade.
-`look: { sun, light, shadow, shade, hl, haze:{c,a}, grain, grainFps, vignette, vignetteC, bloom, grade:{sat,con,bri,tint,tintA,lift}, bars, steps, mblur, caption:{font,size,c,y} }` — `mblur` e qualquer item podem ser funções de t.
+`camera: { x, y, zoom, rot, dolly, focus, dof, shake }` · `look: { sun, light, shadow, shade, hl, haze, grain, grainFps,
+vignette, bloom, grade, bars, steps, mblur }` (tudo animável).
 
-## Regras de ouro do estilo
-1. **3+ camadas de profundidade** (fundo z≥4 enevoado, ação z=1, primeiro plano z≈0.5 escuro e desfocado).
-2. **Luz única e coerente** (`look.sun`); sombras frias (roxo/azul), luzes quentes. Contraste quente/frio entre ambiente e personagem.
-3. Formas grandes e simples com `blob`; detalhe com `taper` (cabelo, dobras, capim). Evite contornos pretos — use sombra própria.
-4. Textura sutil em superfícies grandes (`tex: 'brush'|'speckle'|'blot'`), grão global já vem ligado.
-5. Movimento orgânico: nada parado — `osc`/`wig` em plantas, respiração, piscadas; easings com antecipação (`back`) e assentamento.
-6. Câmera sempre viva: pan/zoom lento; `shake` + `decay` em impactos; `mblur` só nos trechos rápidos.
-7. Desenhe fundos **maiores que a tela** (margem ~400 px) por causa de pan/zoom/desfoque.
-8. Para personagens: perfil é mais fácil e elegante; olhos com `blink`, boca com `talk`, braços/pernas com `limb`, pés com `gait`.
-
-Mais detalhes, exemplos e boas práticas: `README.md` e as 4 cenas em `scenes/`.
+## Estilo
+3+ camadas (fundo enevoado, ação, 1º plano escuro desfocado) · uma luz coerente, sombras frias e luzes quentes ·
+formas grandes com `blob`, detalhes com `taper` · textura sutil · nada parado · câmera sempre se movendo devagar ·
+fundos maiores que a tela (+400 px). Detalhes: `README.md`, `docs/ANATOMIA.md`, cenas em `scenes/`.

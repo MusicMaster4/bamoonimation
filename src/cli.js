@@ -9,6 +9,7 @@ import path from 'node:path';
 import canvas from '@napi-rs/canvas';
 import { Renderer } from './render.js';
 import { loadFonts } from './fonts.js';
+import { checkFilm } from './check.js';
 
 const { createCanvas } = canvas;
 
@@ -18,14 +19,16 @@ Uso:
   bamoo render <cena.js> [-o out.mp4] [--fps 30] [--scale 1] [--from s] [--to s]
                          [--workers N] [--crf 18] [--preset medium] [--audio arquivo]
                          [--format mp4|webm|mov|gif|png]
-  bamoo still  <cena.js> [-t 2.5 | -t 0,1.5,3] [--scale 0.5] [--grid] [-o arquivo.png]
-  bamoo sheet  <cena.js> [-n 12] [--cols 4] [--scale 0.25] [--from s] [--to s] [--grid] [-o folha.jpg]
+  bamoo still  <cena.js> [-t 2.5 | -t 0,1.5,3] [--scale 0.5] [--grid] [--rig] [--layers] [-o arquivo.png]
+  bamoo sheet  <cena.js> [-n 12] [--cols 4] [--scale 0.25] [--from s] [--to s] [--grid] [--rig] [--layers] [-o folha.jpg]
+  bamoo check  <cena.js> [--fps 12] [--allow-text]   verifica camadas, texto e anatomia (rigs)
   bamoo new    <cena.js>                      cria uma cena a partir do modelo
   bamoo info   <cena.js>
   bamoo bench  <cena.js> [-n 12] [--scale 1]
 
 Dicas:
   • Itere com "sheet" (1 imagem com 12 momentos) e "still --grid" (grade de coordenadas).
+  • "check" antes do render; "--rig" mostra esqueletos, "--layers" tinge cada camada.
   • Render final: "render --fps 60" (qualquer FPS; a cena é função contínua do tempo).
   • Arquivos de saída vão para ./out por padrão.`;
 
@@ -164,7 +167,7 @@ const timesArg = (v, dur) => {
 
 async function cmdStill(file, a) {
   const root = await loadScene(file);
-  const r = new Renderer(root, { scale: num(a.scale, 0.5), fps: num(a.fps, 30), debug: !!a.grid });
+  const r = new Renderer(root, { scale: num(a.scale, 0.5), fps: num(a.fps, 30), debug: !!a.grid, rig: !!a.rig, layers: !!a.layers });
   const ts = timesArg(a.t, r.dur);
   for (const t of ts) {
     const cv = r.image(Math.min(t, r.dur - 1e-3));
@@ -178,7 +181,7 @@ async function cmdSheet(file, a) {
   loadFonts();
   const root = await loadScene(file);
   const scale = num(a.scale, 0.25);
-  const r = new Renderer(root, { scale, fps: num(a.fps, 30), debug: !!a.grid });
+  const r = new Renderer(root, { scale, fps: num(a.fps, 30), debug: !!a.grid, rig: !!a.rig, layers: !!a.layers });
   const n = num(a.n, 12), cols = num(a.cols, Math.min(4, n));
   const from = num(a.from, 0), to = Math.min(num(a.to, r.dur), r.dur);
   const rows = Math.ceil(n / cols), gap = 4;
@@ -235,8 +238,8 @@ async function cmdBench(file, a) {
   console.log(`${r.W}x${r.H}: ${ms.toFixed(1)} ms/frame (1 thread) ≈ ${(1000 / ms).toFixed(1)} fps; com ${cpu} workers ≈ ${((1000 / ms) * cpu * 0.8).toFixed(0)} fps`);
 }
 
-const TEMPLATE = `// Cena nova — veja AGENTS.md para a referência rápida.
-import { scene, film, layer, G, blob, circle, ellipse, rect, taper, line, particles, rays, text, lin, rad, kf, osc, wig } from 'bamoonimation';
+const TEMPLATE = `// Cena nova — veja AGENTS.md (referência rápida) e docs/ANATOMIA.md (personagens). Sem texto na tela por padrão.
+import { scene, film, layer, G, blob, circle, ellipse, rect, taper, line, particles, rays, lin, rad, kf, osc, wig, pessoa } from 'bamoonimation';
 
 const look = { sun: [-0.6, -0.8], light: '#fff1d6', shadow: '#3e3470', haze: { c: '#c9d6e3', a: 0.5 } };
 
@@ -254,7 +257,6 @@ const plano1 = scene({
     ]),
     layer({ z: 0.5 }, [blob([[-200, 1200], [-200, 980], [300, 1040], [500, 1200]], { fill: '#3d4a3a' })]),
   ],
-  captions: [[0.5, 4.5, 'Legenda manuscrita aqui.']],
   fadeIn: 0.6,
 });
 
@@ -269,6 +271,13 @@ function cmdNew(file) {
   console.log(abs);
 }
 
+async function cmdCheck(file, a) {
+  const root = await loadScene(file);
+  const res = checkFilm(root, { fps: num(a.fps, 12), allowText: !!a['allow-text'] });
+  console.log(res.lines.join('\n'));
+  if (res.errors) process.exitCode = 1;
+}
+
 export async function main(argv) {
   const a = parseArgs(argv);
   const [cmd, file] = a._;
@@ -278,6 +287,7 @@ export async function main(argv) {
   }
   if (!file) throw new Error(`informe o arquivo da cena: bamoo ${cmd} cenas/minha.js`);
   if (cmd === 'new') return cmdNew(file);
+  if (cmd === 'check') return cmdCheck(file, a);
   if (cmd === 'render') return cmdRender(file, a);
   if (cmd === 'still') return cmdStill(file, a);
   if (cmd === 'sheet') return cmdSheet(file, a);

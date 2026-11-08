@@ -1,7 +1,7 @@
 // Benchmark 2 — Um casal se conhecendo numa cafeteria (tarde de chuva).
 // 3 planos: ele chega (andar com IK) -> "posso sentar?" -> conversa, risos, café.
 import {
-  scene, film, layer, G, blob, ellipse, circle, rect, path, taper, line, limb, particles, rays, dyn, text, lin, rad,
+  scene, film, layer, G, blob, ellipse, circle, rect, path, taper, line, particles, rays, lin, rad, pessoa, caminhada,
   kf, osc, rng, scatter, rep, blink, talk, gait, gaitPhase, ik2, smooth, clamp, lerp, V, wave, darken, mix,
 } from 'bamoonimation';
 
@@ -20,149 +20,6 @@ const look = {
 };
 const D = Math.PI / 180;
 const FLOOR = 1050, SEAT = FLOOR - 172, TABLE = SEAT - 117;
-
-// ------------------------------------------------------------------ cabeça (perfil voltado p/ +x)
-const FACE_M = [[-24, 2], [-36, -30], [-52, -80], [-34, -132], [6, -150], [44, -134], [58, -106], [62, -86, 0.6], [58, -77], [64, -70], [80, -53, 0.5], [67, -44, 0.4], [69, -37], [65, -32, 0.3], [68, -27], [61, -21, 0.6], [65, -11, 0.8], [44, 0], [22, 4]];
-const FACE_W = [[-22, 2], [-34, -30], [-50, -80], [-32, -130], [6, -148], [42, -132], [55, -106], [58, -88, 0.6], [55, -78], [61, -71], [72, -57, 0.5], [70, -51, 0.3], [62, -47, 0.4], [65, -40], [62, -35, 0.3], [65, -30], [58, -24, 0.6], [60, -14, 0.9], [40, -2], [20, 4]];
-const EYE = [[-7, 0], [-1, -4.8], [7, -1.6, 0.4], [1, 3.4]];
-
-const eye = (x, y, skin, seed, lash, look = 0) =>
-  G({ x, y, s: 1.2 }, [
-    blob(EYE, { fill: '#fbf6ee', shade: 0, hl: 0 }),
-    G({ clip: blob(EYE) }, [
-      circle(t => 3 + V(look, t), -0.6, 4, { fill: '#3b2620', shade: 0, hl: 0 }),
-      circle(t => 4.3 + V(look, t), -1.9, 1.2, { fill: '#fff', shade: 0, hl: 0 }),
-      rect(-10, -7, 20, 15, { fill: skin, shade: 0, hl: 0, py: -7, sy: t => blink(t, seed) }),
-    ]),
-    taper(t => {
-      const b = blink(t, seed);
-      return [[-8, -0.4 + b * 4], [0, -5.2 + b * 7], [8.5, -2 + b * 3]];
-    }, [1, 2.8, 1.8], { fill: '#2a1915', shade: 0, hl: 0 }),
-    lash && taper([[6, -3], [10, -6], [13, -6.5]], [2, 1.2, 0.4], { fill: '#2a1915', shade: 0, hl: 0 }),
-  ]);
-
-const mouth = (x, y, o) =>
-  G({ x, y }, [
-    ellipse(-1, 1.5, 4.2, t => 0.3 + 4.5 * V(o.talk, t), { fill: '#5b2323', shade: 0, hl: 0 }),
-    taper(t => {
-      const s = V(o.smile, t) ?? 0;
-      return [[-10, -0.5 - s * 5], [-4, 1.5 - s * 1.5], [2, 0.5]];
-    }, [1, 2.2, 1], { fill: '#4a2620', shade: 0, hl: 0 }),
-  ]);
-
-function headM(o) {
-  const skin = P.skinM;
-  return G([
-    blob(FACE_M, { fill: skin, shade: 0.42, hl: 0.25 }),
-    ellipse(-6, -70, 11, 17, { fill: skin, shade: 0.5 }),
-    taper([[-8, -78], [-2, -70], [-6, -62]], [2, 3, 1], { fill: '#b9805f', shade: 0, hl: 0 }),
-    blob([[-6, -56], [18, -40], [44, -30], [60, -27], [66, -12], [52, 1], [26, 3], [2, -12]], { fill: P.hairM, alpha: 0.6, shade: 0, hl: 0, tex: { k: 'speckle', a: 0.5 } }),
-    blob([[55, -42], [68, -41], [67, -35.5], [56, -36]], { fill: P.hairM, alpha: 0.85, shade: 0, hl: 0 }),
-    ellipse(42, -54, 14, 8, { fill: '#e07a64', alpha: 0.22, blur: 5, shade: 0, hl: 0 }),
-    eye(48, -77, skin, o.seed, false, o.look),
-    taper([[36, -91], [49, -96], [62, -91]], [2, 6, 2], { fill: P.hairM, shade: 0, hl: 0, y: t => -2.5 * (V(o.brow, t) ?? 0) }),
-    mouth(64, -32, o),
-    blob([[-30, -40], [-52, -84], [-40, -140], [2, -164], [48, -152], [66, -124], [57, -106], [34, -124], [8, -120], [-8, -106], [-16, -80], [-22, -52]], { fill: P.hairM, shade: 0.35, hl: 0.3 }),
-    blob([[-30, -128], [0, -152], [40, -146], [10, -140], [-18, -124]], { fill: '#5e463d', shade: 0, hl: 0 }),
-    rect(36, -89, 28, 21, { r: 7, fill: '#ffffff18', stroke: '#2b1d1a', lw: 3.4, shade: 0, hl: 0 }),
-    line([[36, -80], [10, -78], [-4, -74]], { stroke: '#2b1d1a', lw: 3 }),
-  ]);
-}
-
-function headW(o) {
-  const skin = P.skinW;
-  return G([
-    // cachos da nuca (atrás do rosto)
-    ...[[-62, -20, 16], [-40, -8, 15], [-78, -46, 15], [-16, -4, 13]].map(([x, y, r]) => circle(x, y, r, { fill: P.hairW, shade: 0.45, hl: 0.2 })),
-    blob([[4, -14], [-30, -6, 0.7], [-60, -24], [-70, -60], [-40, -60], [-10, -40]], { fill: P.hairW, shade: 0.4 }),
-    blob(FACE_W, { fill: skin, shade: 0.38, hl: 0.25 }),
-    ellipse(38, -52, 15, 9, { fill: '#e8735f', alpha: t => 0.25 + 0.2 * (V(o.smile, t) ?? 0), blur: 5, shade: 0, hl: 0 }),
-    blob([[62, -47], [66, -46], [63, -41], [65, -38], [61, -35], [65, -31], [59, -25], [55, -32], [57, -41]], { fill: P.lips, shade: 0, hl: 0 }),
-    eye(45, -78, skin, o.seed, true, o.look),
-    taper([[34, -92], [46, -97], [58, -93]], [1.5, 4.2, 1.5], { fill: '#4a2416', shade: 0, hl: 0, y: t => -2.5 * (V(o.brow, t) ?? 0) }),
-    mouth(61, -36, o),
-    // volume do cabelo cobrindo o crânio (deixa testa e orelha à mostra)
-    blob([[-10, -46], [-48, -30, 0.7], [-78, -64], [-82, -112], [-62, -152], [-20, -176], [30, -170], [62, -150], [72, -122], [64, -100], [52, -112], [30, -122], [6, -118], [-8, -102], [-14, -84], [-6, -64]], { fill: P.hairW, shade: 0.42, hl: 0.25 }),
-    blob([[-52, -136], [-24, -162], [18, -164], [44, -152], [12, -152], [-20, -150], [-44, -128]], { fill: P.hairWHi, alpha: 0.85, shade: 0, hl: 0 }),
-    blob([[-74, -96], [-70, -126], [-56, -140], [-62, -118], [-66, -96]], { fill: P.hairWHi, alpha: 0.7, shade: 0, hl: 0 }),
-    blob([[-6, -120], [14, -150], [48, -156], [70, -132], [70, -106], [58, -96], [52, -114], [34, -128], [10, -130]], { fill: P.hairW, shade: 0.35, hl: 0.3 }),
-    ellipse(-2, -70, 10, 15, { fill: skin, shade: 0.5 }),
-    taper([[-4, -78], [2, -70], [-2, -62]], [1.5, 2.5, 1], { fill: '#c98a68', shade: 0, hl: 0 }),
-    line([[-1, -56], [-1, -50]], { stroke: '#c9a03e', lw: 1.5 }),
-    circle(-1, -47, 3.2, { fill: '#ecc04f', shade: 0, hl: 0.6 }),
-  ]);
-}
-
-// ------------------------------------------------------------------ corpo (perfil voltado p/ +x, origem no quadril)
-const JACKET = [[-50, 26], [-58, -50], [-54, -150], [-42, -232], [-8, -264], [32, -262], [58, -242], [64, -186], [60, -110], [56, -30], [46, 30]];
-const DRESS = [[-42, 24], [-48, -50], [-44, -150], [-34, -224], [-8, -252], [24, -252], [46, -232], [58, -188, 0.6], [48, -148], [36, -112], [38, -60], [46, 24]];
-const HAND = [[-4, -9], [12, -11], [26, -8, 0.6], [30, 1], [24, 8], [6, 10], [-4, 8]];
-const hand = (skin, p = {}) => G({ s: 1.25, ...p }, [blob(HAND, { fill: skin, shade: 0.4 }), taper([[4, -8], [14, -17], [22, -15]], [8, 6, 4], { fill: skin, shade: 0.3 })]);
-const SHOE_M = [[-18, -11], [8, -15], [46, -6, 0.6], [50, 7], [-20, 9]];
-const SHOE_W = [[-12, -8], [8, -10], [38, -3, 0.6], [40, 4], [-2, 4], [-10, 17], [-16, 17], [-16, 4]];
-const LEG = [170, 168];
-
-const rotP = ([x, y], a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
-
-/**
- * Personagem. o.kind 'm'|'w'; o.x/o.y = quadril; o.flip vira para -x.
- * Funções de t: lean (graus), headRot, talk, smile, brow, look; armN/armF = alvos das mãos (relativos ao quadril);
- * footN/footF = alvos dos pés; o.handN/handF = nó extra na mão (xícara, livro); o.sit = sentado (saia cobre a coxa).
- */
-function person(o) {
-  const m = o.kind === 'm';
-  const skin = m ? P.skinM : P.skinW;
-  const H = (m ? headM : headW)(o);
-  return G({ x: o.x, y: o.y, flip: o.flip }, [
-    dyn(t => {
-      const lean = (V(o.lean, t) ?? 0) * D;
-      const sh = rotP([8, -232], lean);
-      const tN = V(o.armN, t), tF = V(o.armF, t), fN = V(o.footN, t), fF = V(o.footF, t);
-      const leg = (f, near) => limb([near ? 8 : -6, 0], f, LEG, m ? [74, 56, 40] : [58, 42, 26], {
-        fill: m ? (near ? P.pants : darken(P.pants, 0.06)) : near ? skin : darken(skin, 0.08), bend: 1, endAbs: 0,
-        end: blob(m ? SHOE_M : SHOE_W, { fill: m ? P.shoes : P.shoesW, y: -4 }),
-      });
-      const arm = (tg, near, extra) => {
-        const a = [sh[0] + (near ? 0 : -16), sh[1] + (near ? 0 : 6)];
-        const col = m ? (near ? P.jacket : darken(P.jacket, 0.08)) : near ? skin : darken(skin, 0.08);
-        const { j } = ik2(a, tg, 120, 112, -1);
-        return G([
-          limb(a, tg, [120, 112], m ? [50, 40, 30] : [36, 28, 20], { fill: col, bend: -1, end: hand(near ? skin : darken(skin, 0.08), { x: 2 }), endRot: V(o.handRot, t) ?? 0 }),
-          m && G({ x: tg[0], y: tg[1] }, [circle(0, 0, 14, { fill: P.shirt, shade: 0.3 })]),
-          !m && taper([a, [lerp(a[0], j[0], 0.5), lerp(a[1], j[1], 0.5)]], [52, 44], { fill: near ? P.dress : darken(P.dress, 0.06), caps: 'flat' }),
-          extra && G({ x: tg[0], y: tg[1] }, [extra]),
-        ]);
-      };
-      // saia (sentada): cobre as coxas até o joelho
-      let skirt = null;
-      if (!m && o.sit) {
-        const k = ik2([8, 0], fN, LEG[0], LEG[1], 1).j;
-        skirt = blob([[-44, -46], [-52, 24, 0.7], [-10, 44], [k[0] - 20, k[1] + 32], [k[0] + 14, k[1] + 26, 0.6], [k[0] + 26, k[1] - 2], [k[0] + 4, k[1] - 30], [48, -40]], { fill: P.dress, shade: 0.42, tex: { k: 'brush', a: 0.16, s: 0.8 } });
-      }
-      return G([
-        leg(fF, false),
-        arm(tF, false, o.handF),
-        G({ rot: lean / D }, [
-          taper([[14, -244], [16, -272], [18, -292]], [m ? 46 : 38, m ? 42 : 34], { fill: skin, shade: 0.5 }),
-          blob(m ? JACKET : DRESS, { fill: m ? P.jacket : P.dress, tex: { k: 'brush', a: 0.18, s: 0.8 }, shade: 0.45 }),
-          m ? G([
-            blob([[12, -268], [36, -264], [34, -234], [22, -250]], { fill: P.shirt, shade: 0.2 }),
-            taper([[28, -256], [44, -212], [54, -150]], [7, 6, 1], { fill: '#3c4b6c', shade: 0, hl: 0 }),
-            blob([[34, -210], [50, -212], [48, -200], [36, -200]], { fill: '#e8b04c', shade: 0.2 }),
-            taper([[-40, -60], [0, -64], [50, -62]], [0, 5, 0], { fill: '#3c4b6c', shade: 0, hl: 0 }),
-          ]) : G([
-            blob([[-12, -254], [28, -254], [40, -236], [18, -230], [0, -240]], { fill: P.collar, shade: 0.25 }),
-            taper([[-44, -104], [0, -108], [36, -112]], [8, 8, 7], { fill: '#1f625d', shade: 0, hl: 0 }),
-          ]),
-          G({ x: 18, y: -288, rot: t => V(o.headRot, t) ?? 0, px: 0, py: -30, s: 0.9 }, [H]),
-        ]),
-        skirt,
-        leg(fN, true),
-        arm(tN, true, o.handN),
-      ]);
-    }),
-  ]);
-}
 
 // ------------------------------------------------------------------ objetos
 const steam = (seed, h = 130) =>
@@ -259,8 +116,18 @@ const shelf = (x, y, w, seed) =>
 const chalkboard = (x, y) =>
   G({ x, y }, [
     rect(-170, -130, 340, 260, { r: 6, fill: P.chalk, stroke: '#7a4a2e', lw: 14, tex: { k: 'blot', a: 0.5 }, shade: 0.2 }),
-    text('CAFÉ', { y: -70, size: 54, font: 'script', fill: '#f4efe4' }),
-    text('expresso · 6\ncapuccino · 9\nbolo do dia · 12', { y: 30, size: 30, font: 'hand', fill: '#e9e4d8', lh: 1.3 }),
+    // desenho a giz (sem letras): xícara fumegante e um bolo
+    G({ x: -70, y: 10, shade: 0, hl: 0 }, [
+      line([[-40, -10], [40, -10], [32, 40], [-32, 40], [-40, -10]], { stroke: '#efe9dc', lw: 5, round: 0 }),
+      line([[40, 0], [58, 4], [56, 22], [36, 26]], { stroke: '#efe9dc', lw: 5 }),
+      ...[-14, 6].map(x => line([[x, -24], [x + 8, -44], [x - 2, -62], [x + 6, -80]], { stroke: '#efe9dc', lw: 4 })),
+    ]),
+    G({ x: 80, y: 20, shade: 0, hl: 0 }, [
+      line([[-46, 30], [46, 30], [46, -6], [-46, -6], [-46, 30]], { stroke: '#f2c4c4', lw: 5, round: 0 }),
+      line([[-46, 8], [46, 8]], { stroke: '#efe9dc', lw: 4 }),
+      circle(0, -20, 9, { fill: '#e46a6a', shade: 0, hl: 0 }),
+    ]),
+    line([[-130, -90], [130, -90]], { stroke: '#efe9dc', lw: 4, dash: [18, 12] }),
   ]);
 
 const counter = x =>
@@ -273,7 +140,6 @@ const counter = x =>
       rect(-120, -200, 240, 200, { r: 18, fill: lin(0, '#7f868e', '#eef2f5', '#c9cfd4', '#8a9199'), hl: 0.5, shade: 0.35 }),
       rect(-130, -224, 260, 32, { r: 10, fill: '#b0302c', shade: 0.3, hl: 0.4 }),
       rect(-100, -170, 200, 40, { r: 8, fill: '#3b3f45', shade: 0 }),
-      text('ESPRESSO', { y: -150, size: 22, font: 'serif', fill: '#e9c27a' }),
       circle(0, -100, 16, { fill: '#f6f1e2', stroke: '#585f66', lw: 4, shade: 0.2 }),
       line([[0, -100], [8, -108]], { stroke: '#b0302c', lw: 2.5 }),
       ...[-62, 62].map(x => G({ x, y: -70 }, [
@@ -288,7 +154,7 @@ const counter = x =>
     G({ x: 220, y: -352 }, [rect(-60, -110, 120, 110, { r: 10, fill: '#ffffff30', stroke: '#e9e2d4', lw: 4, shade: 0, hl: 0 }), ...rep(3, i => circle(-30 + i * 30, -30, 22, { fill: ['#c98445', '#e3b45e', '#a55a3a'][i], shade: 0.4 }))]),
   ]);
 
-const room = (extra = []) => [
+const room = (extra = [], back = []) => [
   layer({ z: 4 }, [outside()]),
   layer({ z: 1.5 }, [
     path(frameRect(-900, -800, 4400, 1900, ...WIN), { rule: 'evenodd', fill: lin(90, '#b45d47', P.wall, P.wallD), shade: 0, hl: 0, tex: { k: 'blot', a: 0.5 } }),
@@ -313,64 +179,82 @@ const room = (extra = []) => [
     ...rep(3, row => rep(46, i => rect(-900 + i * 96 + (row % 2) * 48, FLOOR - 10 + [0, 34, 80][row], 48, [34, 46, 70][row], { fill: P.floorB, shade: 0, hl: 0 }))),
     rect(-900, FLOOR - 10, 4400, 160, { fill: lin(90, '#3a1e1888', '#3a1e1800'), shade: 0, hl: 0 }),
   ]),
+  ...back,
   layer({ z: 1.15 }, [lamp(560, 300, 0.1), lamp(1210, 230, 0.4), lamp(1860, 300, 0.7)]),
   ...extra,
 ];
 
-// ------------------------------------------------------------------ personagens nos planos
+// ------------------------------------------------------------------ personagens (base anatômica: pessoa())
 const TX = 1210; // mesa
-const W_HIP = [TX + 230, SEAT];
+const M = {
+  sexo: 'm', altura: 740, cabecas: 6.2, barba: 'curta', oculos: true, cabelo: 'curto', pele: P.skinM, corCabelo: P.hairM, roupa: 'jaqueta',
+  cores: { cima: P.jacket, baixo: P.pants, sapato: P.shoes, detalhe: P.shirt },
+  skin: [{ bone: 'tronco', node: blob([[30, -168], [44, -170], [42, -158], [32, -158]], { fill: '#e8b04c', shade: 0.2 }) }],
+};
+const W = { sexo: 'f', altura: 700, cabecas: 6.2, cabelo: 'ondulado', pele: P.skinW, corCabelo: P.hairW, roupa: 'vestido', cores: { cima: P.dress, baixo: P.dress, sapato: P.shoesW, detalhe: P.collar } };
+const HIP_M = pessoa.quadril(M), HIP_W = pessoa.quadril(W);
+const SOLE_M = pessoa.sola(M), SOLE_W = pessoa.sola(W);
+const SEAT_TOP = SEAT + 8;
+const SIT_Y = (o, hip) => SEAT_TOP - 0.052 * o.altura; // articulação do quadril ~5% da altura acima do assento
+const xicara = (seed, hot = true) => G({ x: -6, y: 4 }, [cup(seed, hot)]);
+const livro = () => G({ rot: -90, x: 10 }, [book()]);
+
+// ela, sentada à mesa olhando para a esquerda (flip). Alvos IK em coords do rig (voltado para +x).
+const W_SIT = { x: TX + 250, y: SIT_Y(W) };
+const ankleW = FLOOR - SOLE_W - W_SIT.y;
 const woman = (o = {}) =>
-  person({
-    kind: 'w', x: W_HIP[0], y: W_HIP[1], flip: true, sit: true, seed: 3,
-    lean: o.lean ?? 8, headRot: o.headRot ?? 0, talk: o.talk ?? 0, smile: o.smile ?? 0.3, brow: o.brow ?? 0, look: o.look ?? 0,
-    footN: [150, 168], footF: [120, 168],
-    armN: o.armN ?? [150, -150], armF: o.armF ?? [170, -112], handRot: o.handRot ?? 0,
-    handN: o.handN, handF: o.handF,
+  pessoa({
+    ...W, name: 'ela', x: W_SIT.x, y: W_SIT.y, flip: true, ground: FLOOR,
+    pose: { tronco: o.tronco ?? -82, pescoco: o.pescoco ?? 0, cabeca: o.cabeca ?? 0 },
+    ik: { peN: [150, ankleW], peF: [118, ankleW], maoN: o.maoN ?? [150, -130], angMaoN: o.angMaoN ?? 10, maoF: o.maoF ?? [175, -128], angMaoF: o.angMaoF ?? 0 },
+    rosto: { piscar: 3, sorriso: o.sorriso ?? 0.3, fala: o.fala ?? 0, sobrancelha: o.sobrancelha ?? 0, olhar: o.olhar ?? 0 },
+    segura: o.segura,
   });
 
-// ------------------------------------------------------------------ plano 1: ele chega
-const WALK0 = -500, STRIDE = 150, DUTY = 0.55;
-const WALK1 = WALK0 + (4 + 0.525) * (STRIDE / DUTY); // para com os dois pés no chão
-const manX = kf([0.4, WALK0], [5.2, WALK1, 'out']);
-const walker = person({
-  kind: 'm', y: FLOOR - 345, seed: 7,
-  x: t => manX.at(t),
-  lean: t => 4 * smooth(0.4, 1, t) * (1 - smooth(4.6, 5.3, t)),
-  headRot: t => -2 + 5 * smooth(4.4, 5.4, t),
-  smile: t => 0.1 + 0.4 * smooth(5, 6, t),
-  footN: t => { const [dx, dy] = gait(manX.at(t) - WALK0, { stride: STRIDE, duty: DUTY, lift: 34 }); return [dx + 8, 336 + dy]; },
-  footF: t => { const [dx, dy] = gait(manX.at(t) - WALK0, { stride: STRIDE, duty: DUTY, lift: 34, phase: 0.5 }); return [dx - 6, 336 + dy]; },
-  armN: [70, -140], handN: heldCup(1),
-  armF: t => { const p = gaitPhase(manX.at(t) - WALK0, { stride: STRIDE, duty: DUTY }); const k = 1 - smooth(4.6, 5.4, t); return [-10 + 50 * Math.sin(p * 2 * Math.PI) * k, -10]; },
+// ------------------------------------------------------------------ plano 1: ele chega (caminhada anatômica)
+const PASSO = 0.36 * M.altura, DUTY = 0.6;
+const WALK1 = TX - 430; // para onde o plano 2 começa (ele em pé ao lado da mesa)
+const WALK0 = WALK1 - (2 + 0.5) * (PASSO / DUTY); // 2,5 ciclos: termina com os dois pés no chão
+const manX = kf([0.6, WALK0], [4.8, WALK1, 'sine']);
+const passos = caminhada(M, { x: manX, chao: FLOOR, passo: PASSO, duty: DUTY });
+const walker = pessoa({
+  ...M, name: 'ele andando', ground: FLOOR, x: t => manX.at(t), ...passos,
+  pose: { ...passos.pose, cabeca: t => -3 + 5 * smooth(4.6, 5.6, t) },
+  ik: { ...passos.ik, maoN: [70, -110], angMaoN: -6 },
+  rosto: { piscar: 7, sorriso: t => 0.1 + 0.5 * smooth(5, 6, t) },
+  segura: { N: xicara(1) },
 });
 const shot1 = scene({
   dur: 7,
   bg: '#20141c',
   look,
   camera: { x: kf([0, 620], [7, 960]), y: 560, zoom: kf([0, 0.74], [7, 0.8]), dof: 4, focus: 1 },
-  layers: room([
-    layer({ z: 1.2 }, [counter(-60)]),
-    layer({ z: 1 }, [
-      chair(TX + 260, true), table(TX), G({ x: TX + 60, y: TABLE - 8 }, [cup(4)]),
-      woman({ armN: [128, -160], armF: [150, -150], headRot: kf([0, -14], [5.2, -14], [6, 2]), smile: kf([0, 0.2], [5.6, 0.2], [6.4, 0.7]), handN: book({ x: 6, y: -30, rot: -20 }) }),
-      chair(TX - 260, false), G({ x: t => manX.at(t), y: t => FLOOR - 345 - 5 * Math.abs(Math.cos(gaitPhase(manX.at(t) - WALK0, { stride: STRIDE, duty: DUTY }) * 2 * Math.PI)) }, [G({ x: t => -manX.at(t), y: -(FLOOR - 345) }, [walker])]),
-    ]),
-    layer({ z: 0.55 }, [plant(-560, FLOOR + 80, 1.7, 2), plant(2500, FLOOR + 120, 1.9, 4)]),
-  ]),
-  captions: [[0.8, 4.2, 'Tarde de chuva. A cafeteria estava lotada...']],
+  layers: room(
+    [
+      layer({ z: 1 }, [
+        chair(TX + 260, true), table(TX), G({ x: TX + 60, y: TABLE - 8 }, [cup(4)]),
+        woman({ maoN: [118, -150], angMaoN: -60, maoF: [126, -138], cabeca: kf([0, 18], [5.2, 18], [6, 0]), sorriso: kf([0, 0.2], [5.6, 0.2], [6.4, 0.7]), segura: { N: livro() } }),
+        chair(TX - 260, false), walker,
+      ]),
+      layer({ z: 0.55 }, [plant(-560, FLOOR + 80, 1.7, 2), plant(2500, FLOOR + 120, 1.9, 4)]),
+    ],
+    [layer({ z: 1.2 }, [counter(-60)])],
+  ),
   fadeIn: 0.8,
 });
 
 // ------------------------------------------------------------------ plano 2: "posso sentar?"
-const M_STAND = [TX - 430, FLOOR - 345];
-const standing = person({
-  kind: 'm', x: M_STAND[0], y: M_STAND[1], seed: 7,
-  lean: 3, headRot: kf([0, 0], [0.6, 4], [3, 2], [4, 6]),
-  talk: t => talk(t, 0.6, 2.3, 1), smile: kf([0, 0.2], [2.4, 0.3], [3.4, 0.8]), brow: kf([0, 0], [0.7, 1], [2.2, 0.3]),
-  footN: [30, 336], footF: [-30, 336],
-  armN: [74, -140], handN: heldCup(2),
-  armF: kf([0, [-10, -10]], [0.8, [120, -120], 'back'], [2.6, [130, -110]], [3.4, [-10, -10]]), handRot: kf([0.8, 0], [1.2, -30]),
+const M_STAND = { x: TX - 430, y: FLOOR - HIP_M + 3 };
+const standing = pessoa({
+  ...M, name: 'ele em pé', x: M_STAND.x, y: M_STAND.y, ground: FLOOR,
+  pose: { tronco: -87, cabeca: kf([0, 0], [0.6, 4], [3, 2], [4, 6]) },
+  ik: {
+    peN: [36, FLOOR - SOLE_M - M_STAND.y], peF: [-34, FLOOR - SOLE_M - M_STAND.y],
+    maoN: [70, -110], angMaoN: -6,
+    maoF: kf([0, [8, 26]], [0.8, [150, -110], 'back'], [2.6, [156, -100]], [3.4, [8, 26]]), angMaoF: kf([0, 72], [0.8, -10], [2.6, -10], [3.4, 72]),
+  },
+  rosto: { piscar: 7, fala: t => talk(t, 0.6, 2.3, 1), sorriso: kf([0, 0.2], [2.4, 0.3], [3.4, 0.8]), sobrancelha: kf([0, 0], [0.7, 1], [2.2, 0.3]) },
+  segura: { N: xicara(2) },
 });
 const shot2 = scene({
   dur: 6,
@@ -381,28 +265,33 @@ const shot2 = scene({
     layer({ z: 1 }, [
       chair(TX + 260, true), chair(TX - 260, false), table(TX), G({ x: TX + 70, y: TABLE - 8 }, [cup(4)]),
       woman({
-        headRot: kf([0, -14], [2.3, -14], [2.9, 4, 'back']), smile: kf([0, 0.15], [2.6, 0.2], [3.2, 1]), talk: t => talk(t, 3.3, 4.8, 4), brow: kf([2.4, 0], [2.8, 1], [4, 0.4]),
-        armN: kf([0, [128, -160]], [2.4, [128, -160]], [3, [150, -122]]), armF: kf([0, [150, -150]], [2.4, [150, -150]], [3, [180, -118]]),
-        handN: G({ x: 6, rot: kf([2.4, -20], [3, -80]), y: kf([2.4, -30], [3, -8]) }, [book()]),
+        cabeca: kf([0, 18], [2.3, 18], [2.9, -4, 'back']), sorriso: kf([0, 0.15], [2.6, 0.2], [3.2, 1]), fala: t => talk(t, 3.3, 4.8, 4), sobrancelha: kf([2.4, 0], [2.8, 1], [4, 0.4]),
+        maoN: kf([0, [118, -150]], [2.4, [118, -150]], [3, [176, -112]]), angMaoN: kf([2.4, -60], [3, 0]),
+        maoF: kf([0, [126, -138]], [2.4, [126, -138]], [3, [190, -114]]),
+        segura: { N: G({ show: [0, 3] }, [livro()]) },
       }),
+      G({ show: [3, 99], x: TX + 110, y: TABLE - 6, rot: 90 }, [book()]),
       standing,
     ]),
     layer({ z: 0.5 }, [plant(-60, FLOOR + 160, 2.2, 6)]),
   ]),
-  captions: [[0.5, 2.6, '— Com licença... posso sentar aqui?'], [3.2, 5.4, '— Claro! Fique à vontade.']],
 });
 
 // ------------------------------------------------------------------ plano 3: a conversa
-const M_SIT = [TX - 230, SEAT];
+const M_SIT = { x: TX - 250, y: SIT_Y(M) };
+const ankleM = FLOOR - SOLE_M - M_SIT.y;
 const sipT = [4.6, 5.8];
-const sitting = person({
-  kind: 'm', x: M_SIT[0], y: M_SIT[1], seed: 7,
-  lean: kf([0, 8], [2.8, 12], [4, 6]), headRot: t => 3 * Math.sin(t * 1.4) * (t < 2.6 ? 1 : 0.4) + 6 * smooth(2.6, 3, t) * (1 - smooth(3.8, 4.3, t)),
-  talk: t => talk(t, 0.4, 2.5, 9), smile: kf([0, 0.4], [2.7, 0.5], [3.1, 1]), brow: t => 0.6 * Math.max(0, Math.sin(t * 2.3)),
-  footN: [150, 168], footF: [120, 168],
-  armN: kf([0, [170, -128]], [sipT[0], [170, -128]], [sipT[0] + 0.5, [86, -258]], [sipT[1], [86, -258]], [sipT[1] + 0.5, [170, -128]]),
-  handN: G({ x: 14, y: -12, rot: kf([sipT[0] + 0.3, 0], [sipT[0] + 0.6, -28], [sipT[1], -28], [sipT[1] + 0.3, 0]) }, [cup(5)]),
-  armF: kf([0, [120, -70]], [0.6, [160, -200], 'back'], [1.6, [130, -180]], [2.4, [120, -70]]), handRot: kf([0.6, -20], [1.6, 10]),
+const sitting = pessoa({
+  ...M, name: 'ele sentado', x: M_SIT.x, y: M_SIT.y, ground: FLOOR,
+  pose: { tronco: kf([0, -82], [2.8, -78], [4, -84]), cabeca: t => 3 * Math.sin(t * 1.4) * (t < 2.6 ? 1 : 0.4) - 6 * smooth(2.6, 3, t) * (1 - smooth(3.8, 4.3, t)) },
+  ik: {
+    peN: [152, ankleM], peF: [120, ankleM],
+    maoN: kf([0, [178, -118]], [sipT[0], [178, -118]], [sipT[0] + 0.5, [104, -236]], [sipT[1], [104, -236]], [sipT[1] + 0.5, [178, -118]]),
+    angMaoN: kf([0, -4], [sipT[0], -4], [sipT[0] + 0.5, -48], [sipT[1], -48], [sipT[1] + 0.5, -4]),
+    maoF: kf([0, [150, -40]], [0.6, [176, -200], 'back'], [1.6, [160, -186]], [2.4, [150, -40]]), angMaoF: kf([0, 20], [0.6, -50], [1.6, -30], [2.4, 20]),
+  },
+  rosto: { piscar: 7, fala: t => talk(t, 0.4, 2.5, 9), sorriso: kf([0, 0.4], [2.7, 0.5], [3.1, 1]), sobrancelha: t => 0.6 * Math.max(0, Math.sin(t * 2.3)) },
+  segura: { N: xicara(5) },
 });
 const shot3 = scene({
   dur: 7.5,
@@ -415,11 +304,11 @@ const shot3 = scene({
       book({ x: TX + 110, y: TABLE - 6, rot: 90 }),
       G({ x: TX + 70, y: TABLE - 8 }, [cup(4)]),
       woman({
-        lean: kf([0, 12], [2.8, 12], [3.2, 2], [4.2, 10]),
-        headRot: t => -4 + 10 * smooth(2.7, 3.1, t) * (1 - smooth(4, 4.6, t)) + 2 * Math.sin(t * 1.1),
-        smile: kf([0, 0.6], [2.7, 0.7], [3.0, 1]), talk: t => talk(t, 2.8, 3.9, 13, 13) * 0.8 + talk(t, 5.8, 7, 3),
-        armN: kf([0, [118, -230]], [2.7, [118, -230]], [3, [110, -262]], [4.2, [110, -262]], [4.6, [118, -230]]), handRot: -95,
-        armF: [175, -118],
+        tronco: kf([0, -76], [2.8, -76], [3.2, -86], [4.2, -78]),
+        cabeca: t => 4 - 12 * smooth(2.7, 3.1, t) * (1 - smooth(4, 4.6, t)) + 2 * Math.sin(t * 1.1),
+        sorriso: kf([0, 0.6], [2.7, 0.7], [3.0, 1]), fala: t => talk(t, 2.8, 3.9, 13, 13) * 0.8 + talk(t, 5.8, 7, 3),
+        maoN: kf([0, [172, -112]], [2.7, [172, -112]], [3, [74, -118]], [4.2, [74, -118]], [4.6, [172, -112]]), angMaoN: kf([0, 0], [2.7, 0], [3, -65], [4.2, -65], [4.6, 0]),
+        maoF: [186, -114],
       }),
       sitting,
       particles({ seed: 3, rate: 2, t0: 3, t1: 6, life: [2, 3], at: [TX, TABLE - 160], area: 80, dir: -90, spread: 50, speed: [20, 40], size: [6, 9], color: '#ff9a9a', alphaVar: 0.3,
@@ -427,7 +316,6 @@ const shot3 = scene({
     ]),
     layer({ z: 0.5 }, [plant(420, FLOOR + 260, 2, 9), plant(2050, FLOOR + 300, 2.1, 11)]),
   ]),
-  captions: [[5.2, 7.2, '...e aquele café durou a tarde inteira.']],
   fadeOut: 1,
 });
 

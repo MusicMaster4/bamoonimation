@@ -1,7 +1,7 @@
 // Benchmark 3 — Foguete decolando ao amanhecer.
 // 3 planos: contagem regressiva na plataforma -> ignição e decolagem -> subida até o espaço.
 import {
-  scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, dyn, text, lin, rad,
+  scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, dyn, lin, rad,
   kf, osc, rng, scatter, rep, noise, smooth, clamp, lerp, V, decay, darken,
 } from 'bamoonimation';
 
@@ -37,7 +37,9 @@ const rocket = () =>
     blob([[-46, -480, 0], [46, -480, 0], [26, -560], [6, -588, 0.4], [-6, -588, 0.4], [-26, -560]], { fill: lin(0, '#a9a49d', C.white, '#fffdf8', '#8f8a84'), shade: 0.45, hl: 0.35 }),
     taper([[0, -585], [0, -640]], [7, 3], { fill: C.red, shade: 0 }),
     blob([[-9, -640], [9, -640], [0, -668]], { fill: C.red }),
-    ...'BAMOO'.split('').map((ch, i) => text(ch, { x: 22, y: -440 + i * 34, size: 30, font: 'serif', fill: C.red })),
+    // faixa vermelha com emblema (sem letras)
+    rect(18, -452, 12, 150, { r: 4, fill: C.red, shade: 0.3, hl: 0.3 }),
+    ...[0, 1, 2].map(i => circle(24, -430 + i * 52, 7, { fill: '#f6f2ea', shade: 0, hl: 0.4 })),
     fin(0, true),
   ]);
 
@@ -112,12 +114,18 @@ const cloudBank = (seed, y, w, col = '#f3d2c0', sc = 1) =>
       ellipse(0, 0, 200, 50), circle(-90, -30, 60), circle(-10, -60, 85), circle(90, -34, 66), circle(170, -10, 44), circle(-170, -6, 40),
     ])));
 
-const countdown = (t0, ...labels) =>
-  layer({ fixed: true }, labels.map((s, i) => text(s, {
-    x: 470, y: 430, font: 'serif', size: i === labels.length - 1 ? 110 : 230, fill: '#fff4e2', drop: { c: '#1b102e99', blur: 20, y: 6 },
-    alpha: kf([t0 + i - 0.01, 0], [t0 + i + 0.08, 1], [t0 + i + 0.7, 1], [t0 + i + 0.95, 0]),
-    s: kf([t0 + i, 1.25], [t0 + i + 0.25, 1, 'out']),
-  })));
+// contagem regressiva visual (sem texto): três luzes de aviso acendem uma a uma; na ignição ficam verdes
+const countdown = (x, y, t0) =>
+  G({ x, y, s: 1.4 }, [
+    rect(-22, -140, 44, 150, { r: 10, fill: '#2b2533', shade: 0.3, hl: 0.3 }),
+    ...[0, 1, 2].map(i =>
+      circle(0, -112 + i * 46, 15, {
+        fill: t => (t >= t0 + 3 ? '#7dff9a' : t >= t0 + i ? '#ff5a3c' : '#5a2a2a'),
+        glow: t => (t >= t0 + i ? { r: 26, a: 0.9, c: t >= t0 + 3 ? '#7dff9a' : '#ff6a3c' } : 0),
+        shade: 0, hl: 0.4,
+      }),
+    ),
+  ]);
 
 // ------------------------------------------------------------------ plano 1: contagem e ignição
 const IGN = 4.4, LIFT = 5.4;
@@ -135,6 +143,7 @@ const shot1 = scene({
     layer({ z: 1 }, [
       pad(),
       tower(1120, kf([IGN, 0], [LIFT + 0.4, 1])),
+      countdown(1240, PAD_Y - 40, 1.4),
       smoke(11, [960, PAD_Y + 40], 180, { t0: IGN + 0.1, rate: 30, size: [24, 46], speed: [380, 620] }),
       smoke(12, [960, PAD_Y + 40], 0, { t0: IGN + 0.1, rate: 30, size: [24, 46], speed: [380, 620] }),
       G({ x: 960, y: t => PAD_Y - 52 + rise(t) }, [
@@ -144,7 +153,6 @@ const shot1 = scene({
       ]),
       smoke(13, [960, PAD_Y + 60], -90, { t0: IGN + 0.2, rate: 22, spread: 90, speed: [120, 260], size: [30, 60], grow: 2.6 }),
     ]),
-    countdown(1.3, '3', '2', '1', 'IGNIÇÃO'),
   ],
   fadeIn: 0.8,
 });
@@ -192,7 +200,6 @@ const shot3 = scene({
     ]),
     layer({ z: 0.7 }, [G({ y: t => climb(t) - 600 }, [cloudBank(41, 400, 3200, '#f4dce0', 2), cloudBank(42, -900, 3200, '#efd2da', 2.2)])]),
   ],
-  captions: [[3.6, 6.4, 'Rumo às estrelas.']],
   fadeOut: 1,
 });
 
