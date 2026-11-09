@@ -16,30 +16,62 @@ const { createCanvas, Path2D, DOMMatrix, PathOp, Image, ImageData } = canvas;
 const { PI, cos, sin, tan, abs, hypot, min, max, floor, round, exp, sqrt } = Math;
 const TAU = PI * 2;
 
-export const DEFAULT_LOOK = {
-  sun: [-0.55, -0.85], // direção PARA a fonte de luz (y para baixo). Ex.: [-1,-1] = luz vindo de cima-esquerda
-  light: '#fff2d8', // cor do realce (lado iluminado)
-  shadow: '#3e3470', // cor da sombra própria (aplicada em multiply)
-  shade: 0.42, // força padrão da sombra própria automática (0 = desliga)
-  hl: 0.22, // força padrão do realce do lado da luz
-  shadeD: 0.22, // deslocamento da sombra (fração do menor lado da forma)
-  hlD: 0.07,
-  soft: 0.3, // suavidade do terminador (fração do deslocamento)
-  tex: null, // textura padrão por forma: 'grain'|'speckle'|'brush'|'paper'|'hatch'|'blot'|{k,a,s,rot}
-  grain: 0.08, // grão de filme global
-  grainFps: 8, // quantas vezes por segundo o grão muda (0 = estático, arquivo bem menor)
-  paper: 0, // papel global (multiply)
-  vignette: 0.32,
-  vignetteC: '#1a0f2e',
-  bloom: 0.15,
-  haze: { c: '#c9d6e3', a: 0.5 }, // névoa atmosférica para camadas com z > 1
-  grade: { sat: 1.04, con: 1.03, bri: 1, lift: '#0f0b1c' },
-  bars: 0, // tarjas de cinema (fração da altura, ex.: 0.1)
-  steps: 0, // animar "em dois": 12 => poses a 12 fps (câmera continua suave)
-  mblur: 0, // motion blur: nº de subquadros (ex.: 4). Pode ser animado.
-  shutter: 0.5,
-  caption: { font: 'hand', size: 46, c: '#ffffff', y: 0.885 },
+/**
+ * ESTILOS de acabamento. O padrão é 'ilustrado' — o visual das referências (explainer ilustrado mid-century):
+ * textura de pincel automática nas formas grandes, papel e grão, sombra própria em meia-lua, realce quente,
+ * névoa atmosférica, profundidade de campo, bloom, vinheta e grade de cor quente com pretos levantados.
+ * Escolha outro com look: { estilo: 'limpo' | 'papel' }. Qualquer chave pode ser sobrescrita em look.
+ */
+export const ESTILOS = {
+  ilustrado: {
+    sun: [-0.55, -0.85], // direção PARA a fonte de luz (y para baixo). Ex.: [-1,-1] = luz vindo de cima-esquerda
+    light: '#fff2d8', // cor do realce (lado iluminado)
+    shadow: '#43306a', // cor da sombra própria (aplicada em multiply)
+    shade: 0.45, // força padrão da sombra própria automática (0 = desliga)
+    hl: 0.26, // força padrão do realce do lado da luz
+    shadeD: 0.22, // deslocamento da sombra (fração do menor lado da forma)
+    hlD: 0.07,
+    soft: 0.3, // suavidade do terminador (fração do deslocamento)
+    ceu: [[0, '#7fa8d6'], [0.6, '#cfe0ea'], [1, '#f2dcb6']], // fundo padrão quando a cena não define bg
+    tex: null, // textura fixa para TODAS as formas: 'grain'|'speckle'|'brush'|'paper'|'hatch'|'blot'|{k,a,s,rot}
+    autoTex: { k: 'brush', a: 0.32, s: 0.85, min: 60 }, // pincel seco automático em formas ≥ min px (tex: false desliga na forma)
+    autoLuz: 0.38, // "banho de luz" automático: degradê suave luz→sombra na direção do sol em formas grandes (0 desliga; luz: false na forma)
+    grain: 0.08, // grão de filme global
+    grainFps: 8, // quantas vezes por segundo o grão muda (0 = estático, arquivo bem menor)
+    paper: 0.16, // textura de papel global (multiply)
+    vignette: 0.42,
+    vignetteC: '#1f0f2a',
+    bloom: 0.26,
+    haze: { c: 'auto', a: 0.45 }, // névoa atmosférica para camadas com z > 1 ('auto' = cor do horizonte do fundo)
+    grade: { sat: 1.12, con: 1.08, bri: 1, lift: '#140a16', tint: '#ffb070', tintA: 0.1 },
+    dof: 5, // profundidade de campo padrão (desfoque de camadas fora de z=1); camera.dof sobrescreve
+    bars: 0, // tarjas de cinema (fração da altura, ex.: 0.1)
+    steps: 0, // animar "em dois": 12 => poses a 12 fps (câmera continua suave)
+    mblur: 0, // motion blur: nº de subquadros (ex.: 4). Pode ser animado.
+    shutter: 0.5,
+    caption: { font: 'hand', size: 46, c: '#ffffff', y: 0.885 },
+  },
 };
+// limpo: vetor chapado (diagramas, testes) — sem texturas, grão, vinheta, bloom, grade nem desfoque
+ESTILOS.limpo = { ...ESTILOS.ilustrado, shade: 0.3, hl: 0.15, autoTex: null, autoLuz: 0, grain: 0, paper: 0, vignette: 0, bloom: 0, grade: null, dof: 0, haze: { c: 'auto', a: 0.3 } };
+// papel: ilustração impressa — mais papel e grão fixo, menos brilho (como os diagramas texturizados da referência)
+ESTILOS.papel = { ...ESTILOS.ilustrado, paper: 0.35, grain: 0.1, grainFps: 0, bloom: 0.12, autoTex: { k: 'blot', a: 0.35, s: 0.8, min: 60 } };
+
+/**
+ * LUZES prontas (extraídas dos benchmarks): look: { luz: 'dia' | 'entardecer' | 'amanhecer' | 'interior' |
+ * 'noite' | 'subaquatico' }. Definem céu padrão (se a cena não tiver bg), sol, cores de luz/sombra, névoa
+ * (da cor do céu), vinheta e a grade de cor (a noite escurece e esfria tudo).
+ */
+export const LUZES = {
+  dia: { ceu: [[0, '#7fa8d6'], [0.6, '#cfe0ea'], [1, '#f2dcb6']], sun: [-0.55, -0.85], light: '#fff2d8', shadow: '#43306a', grade: { tint: '#ffd9a0', tintA: 0.07 } },
+  entardecer: { ceu: [[0, '#7d9cc8'], [0.55, '#f1c28e'], [1, '#ffdca2']], sun: [-0.9, -0.45], light: '#fff0c8', shadow: '#5b3c62', haze: { a: 0.4 }, vignetteC: '#2a1428', bloom: 0.3, grade: { sat: 1.12, con: 1.08, lift: '#120a10', tint: '#ffb060', tintA: 0.16 } },
+  amanhecer: { ceu: [[0, '#1b2654'], [0.45, '#5d4a8a'], [0.78, '#e9836b'], [1, '#ffd08a']], sun: [0.85, -0.45], light: '#ffe2b8', shadow: '#3c2c5c', haze: { a: 0.55 }, vignetteC: '#120a22', bloom: 0.35, grade: { lift: '#0c0718', tint: '#ff9a60', tintA: 0.14 } },
+  interior: { ceu: [[0, '#5a3a34'], [1, '#2a1a1e']], sun: [-0.45, -1], light: '#ffeccc', shadow: '#47234d', haze: { c: '#e7b98f', a: 0.5 }, vignette: 0.48, vignetteC: '#220b1a', bloom: 0.3, grade: { lift: '#14080f', tint: '#ffa860', tintA: 0.14 } },
+  noite: { ceu: [[0, '#070b22'], [0.6, '#1c2a5a'], [1, '#3d3f7a']], sun: [0.3, -1], light: '#cfe0ff', shadow: '#141a3c', haze: { a: 0.5 }, vignette: 0.55, vignetteC: '#05060f', bloom: 0.38, grade: { sat: 0.8, con: 1.08, bri: 0.72, lift: '#060818', tint: '#3a5cff', tintA: 0.3 } },
+  subaquatico: { ceu: [[0, '#86cbd8'], [0.35, '#2a7c9c'], [0.75, '#0b3352'], [1, '#071f33']], sun: [0.12, -1], light: '#e2fbff', shadow: '#173a5c', haze: { c: '#2c7f9f', a: 0.78 }, vignette: 0.5, vignetteC: '#021423', bloom: 0.22, grade: { sat: 1.06, con: 1.05, lift: '#04121e', tint: '#4aa6c4', tintA: 0.3 } },
+};
+
+export const DEFAULT_LOOK = ESTILOS.ilustrado;
 
 const BLEND = {
   multiply: 'multiply', screen: 'screen', overlay: 'overlay', add: 'lighter', lighter: 'lighter',
@@ -243,14 +275,21 @@ export class Renderer {
 
   lookOf(sc, t) {
     const env = { t, dur: sc.dur, W: this.DW, H: this.DH, fps: this.fps };
-    const L = { ...DEFAULT_LOOK, ...(this.root.look ?? {}), ...(sc.look ?? {}) };
+    const user = { ...(this.root.look ?? {}), ...(sc.look ?? {}) };
+    const est = ESTILOS[V(user.estilo, t, env) ?? 'ilustrado'];
+    if (!est) throw new Error(`bamoo: estilo desconhecido "${user.estilo}". Use: ${Object.keys(ESTILOS).join(', ')}`);
+    const lz = user.luz === undefined ? {} : LUZES[V(user.luz, t, env)];
+    if (!lz) throw new Error(`bamoo: luz desconhecida "${user.luz}". Use: ${Object.keys(LUZES).join(', ')}`);
+    const L = { ...est, ...lz, ...user };
     const out = {};
-    for (const k in L) {
-      const v = V(L[k], t, env);
-      out[k] = v;
-    }
-    if (out.haze === false || out.haze === 0) out.haze = null;
-    if (out.caption) out.caption = { ...DEFAULT_LOOK.caption, ...out.caption };
+    for (const k in L) out[k] = V(L[k], t, env);
+    // grade e névoa: mescla em camadas (estilo -> luz -> cena), assim mudar só a tinta não apaga o resto
+    const gr = [est.grade, lz.grade, V(user.grade, t, env)];
+    out.grade = gr[2] === null || (gr[0] === null && !gr[1] && !gr[2]) ? null : { ...(gr[0] ?? {}), ...(gr[1] ?? {}), ...(gr[2] ?? {}) };
+    const hz = V(user.haze, t, env);
+    out.haze = hz === null || hz === false || hz === 0 ? null : { ...(est.haze ?? {}), ...(lz.haze ?? {}), ...(hz ?? {}) };
+    if (out.haze && (out.haze.c === 'auto' || !out.haze.c)) out.haze = { ...out.haze, c: horizonte(V(sc.bg, t, env) ?? out.ceu) };
+    if (out.caption) out.caption = { ...ESTILOS.ilustrado.caption, ...out.caption };
     return out;
   }
 
@@ -279,12 +318,12 @@ export class Renderer {
     this.scenePost(cv, sc, look, t, env);
   }
 
-  camera(sc, t, env) {
+  camera(sc, t, env, look) {
     const c = typeof sc.camera === 'function' ? sc.camera(t, env) : sc.camera ?? {};
     const g = (k, d) => (c[k] === undefined ? d : V(c[k], t, env));
     const cam = {
       x: g('x', this.DW / 2), y: g('y', this.DH / 2), zoom: g('zoom', 1), rot: g('rot', 0),
-      dolly: g('dolly', 0), focus: g('focus', 1), dof: g('dof', 0), shake: g('shake', 0),
+      dolly: g('dolly', 0), focus: g('focus', 1), dof: g('dof', look?.dof ?? 0), shake: g('shake', 0),
     };
     if (cam.shake) {
       const f = g('shakeF', 9);
@@ -300,10 +339,10 @@ export class Renderer {
     resetCtx(ctx);
     const s = this.s;
     ctx.setTransform(s, 0, 0, s, 0, 0);
-    const bg = V(sc.bg, t, env) ?? '#000';
+    const bg = V(sc.bg, t, env) ?? look.ceu ?? ESTILOS.ilustrado.ceu;
     ctx.fillStyle = this.paint(ctx, bg, [0, 0, this.DW, this.DH]);
     ctx.fillRect(0, 0, this.DW, this.DH);
-    const cam = this.camera(sc, t, env);
+    const cam = this.camera(sc, t, env, look);
     const tA = look.steps > 0 ? floor(t * look.steps + 1e-6) / look.steps : t;
     const envA = tA === t ? env : { ...env, t: tA };
     const base = {
@@ -741,11 +780,18 @@ export class Renderer {
     }
     if (blur > 0) ctx.restore();
     if (fill && !(blur > 0) && !blend) {
+      const size = sizeHint ?? min(g.bb[2] - g.bb[0], g.bb[3] - g.bb[1]);
       const tex = this.st(n, 'tex', inh, t, env);
       if (tex) this.applyTex(ctx, g, tex, rule);
+      else if (tex == null) {
+        // textura automática do estilo (pincel seco em superfícies grandes); tex: false desliga
+        const at = inh.look?.autoTex;
+        if (at && size * ds >= (at.min ?? 70) * this.s) this.applyTex(ctx, g, at, rule);
+      }
+      const lz = inh.look?.autoLuz;
+      if (lz > 0 && n.luz !== false && size * ds >= 50 * this.s) this.applyWash(ctx, g, lz, inh, M, rule);
       const shade = this.st(n, 'shade', inh, t, env);
       const hl = this.st(n, 'hl', inh, t, env);
-      const size = sizeHint ?? min(g.bb[2] - g.bb[0], g.bb[3] - g.bb[1]);
       if ((shade || hl) && size * ds > 5) this.applyShade(ctx, g, size, shade, hl, inh, M, ds, rule);
     }
     if (stroke) {
@@ -797,6 +843,29 @@ export class Renderer {
     ctx.globalAlpha *= a ?? def[1];
     ctx.fillStyle = pat;
     const [x0, y0, x1, y1] = g.bb;
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.restore();
+  }
+
+  /** Banho de luz: degradê soft-light da cor da luz (lado do sol) para a cor da sombra (lado oposto). */
+  applyWash(ctx, g, a, inh, M, rule) {
+    const inv = M.inverse();
+    const sun = inh.sun ?? [-0.55, -0.85];
+    let lx = inv.a * sun[0] + inv.c * sun[1], ly = inv.b * sun[0] + inv.d * sun[1];
+    const ll = hypot(lx, ly) || 1;
+    lx /= ll;
+    ly /= ll;
+    const [x0, y0, x1, y1] = g.bb, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const ext = abs(((x1 - x0) / 2) * lx) + abs(((y1 - y0) / 2) * ly);
+    const gr = ctx.createLinearGradient(cx + lx * ext, cy + ly * ext, cx - lx * ext, cy - ly * ext);
+    gr.addColorStop(0, inh.light ?? '#fff2d8');
+    gr.addColorStop(0.5, '#808080');
+    gr.addColorStop(1, inh.shadow ?? '#43306a');
+    ctx.save();
+    ctx.clip(g.path, rule);
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.globalAlpha *= min(1, a);
+    ctx.fillStyle = gr;
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     ctx.restore();
   }
@@ -1529,6 +1598,22 @@ export class Renderer {
     }
     ctx.restore();
   }
+}
+
+/** Cor do "horizonte" de um fundo (para a névoa automática): cor sólida ou ponto a 70% do degradê. */
+function horizonte(bg) {
+  if (typeof bg === 'string') return bg;
+  const st = Array.isArray(bg) ? bg : bg?.stops;
+  if (!st?.length) return '#d7cfc4';
+  const pts = st.map((x, i) => (Array.isArray(x) ? x : [st.length === 1 ? 0 : i / (st.length - 1), x]));
+  const u = 0.7;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i][0] >= u) {
+      const [a0, c0] = pts[i - 1], [a1, c1] = pts[i];
+      return mix(c0, c1, (u - a0) / (a1 - a0 || 1));
+    }
+  }
+  return pts[pts.length - 1][1];
 }
 
 /** Recorta o contexto à caixa bb expandida (limita o custo de filtros de blur). */

@@ -3,7 +3,7 @@
 import {
   scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, dyn, lin, rad,
   kf, osc, wig, rng, scatter, rep, wave, body, along, sampleCurve, profile, spline, move,
-  smooth, clamp, lerp, decay, between, V, heading, noise, darken,
+  smooth, clamp, lerp, decay, between, V, heading, noise, darken, bocaAberta, fileiraDentes,
 } from 'bamoonimation';
 
 const C = {
@@ -69,14 +69,15 @@ function shark({ swim = 1, clock = t => 0.75 * t, open = 0 } = {}) {
       fin(0.2, -BOT(0.2) * 0.8, [[20, -6], [4, 14], [-12, 26, 0], [-18, 14], [-26, -6]]),
       fin(0.4, -BOT(0.4) * 0.85, [[30, -6], [10, 22], [-20, 40, 0], [-26, 24], [-36, -6]]),
       // boca aberta (interior + dentes de cima)
-      o > 0.01 && blob([...upperLip, ...jawTop.slice().reverse()], { fill: lin(0, C.throat, C.mouth, '#7a2c3a'), shade: 0, hl: 0 }),
-      o > 0.01 && G(upperLip.slice(3, 9).map((p, i) => tooth(p, 1, teethK * (1 - i * 0.05)))),
+      // boca aberta: cavidade com profundidade (garganta, língua, dentes do lado de lá) — bocaAberta() do motor
+      o > 0.01 && bocaAberta({ cima: upperLip, baixo: jawTop, dentes: false, cores: { garganta: C.throat, boca: C.mouth } }),
+      o > 0.01 && fileiraDentes(upperLip, jawTop, { n: 9, tam: 15, de: 0.28, k: teethK }),
       // corpo + barriga
       blob(body(sp, TOP, MOUTH, { n: 26 }), { fill: lin(90, '#4a6880', C.shark, C.sharkL), shade: 0.42, hl: 0.35, tex: { k: 'brush', a: 0.25, s: 1.2 } }),
       blob(body(sp, BELT, MOUTH, { n: 26 }), { fill: lin(90, '#f6f8f2', '#d3dedf'), shade: 0.38, hl: 0 }),
       // mandíbula inferior + dentes de baixo
       blob([...jawTop, ...jawBot], { fill: lin(90, '#eef2ec', '#c9d5d7'), shade: 0.4, hl: 0 }),
-      o > 0.01 && G(jawTop.slice(3, 9).map((p, i) => tooth(p, -1, teethK * 0.85 * (1 - i * 0.05)))),
+      o > 0.01 && fileiraDentes(jawTop, upperLip, { n: 8, tam: 13, de: 0.3, k: teethK }),
       // nadadeira peitoral (lado de cá)
       fin(0.68, -BOT(0.68) * 0.55, [[40, -12], [16, 26], [-50, 118, 0.4], [-74, 134, 0], [-66, 106], [-34, 36], [-44, -10]], { rot: 6 * Math.sin(t * 1.3) }),
       // brânquias

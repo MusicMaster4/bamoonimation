@@ -15,9 +15,10 @@ export {
 export { mix, adj, lighten, darken, alpha, rgba, css } from './color.js';
 export { ik2, wave, ellipsePts, xf, mirror, polar, bboxPts, along, body, sampleCurve, widthFn as profile } from './geom.js';
 export { registerFont, FONT_KEYS } from './fonts.js';
-export { Renderer, DEFAULT_LOOK } from './render.js';
+export { Renderer, DEFAULT_LOOK, ESTILOS, LUZES } from './render.js';
 export { TEXTURES } from './textures.js';
 export { skeleton, PLAN_RULES } from './anatomy.js';
 export { solveRig, restPose, chainPoints } from './rig.js';
 export { pessoa, caminhada, cabecaPerfil, olho, boca } from './pessoa.js';
 export { ave, ASA, bater, plantaAsa, pelesAsa } from './ave.js';
+export { bocaAberta, fileiraDentes } from './boca.js';

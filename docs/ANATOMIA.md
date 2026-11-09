@@ -139,6 +139,22 @@ Ossos do esqueleto: `quadril, corpo, pescoco, cabeca, cauda, ombro*` (fixação 
 - Ataque de rapina: fêmur gira para a frente e lança as garras à frente do peito, asas para cima e para trás
   (freio), cauda em leque. Pousado: corpo ereto (~30–45°), fêmur para baixo, dedos na horizontal do mundo.
 
+### Bocas abertas — `bocaAberta()` / `fileiraDentes()`
+
+Nunca preencha o vão entre as mandíbulas com um polígono chapado fechado por uma reta entre as pontas
+(vira uma "membrana de carne" sem profundidade). Use:
+
+```js
+bocaAberta({ cima: labioDeCima, baixo: labioDeBaixo })   // bordas dos lábios, do fundo (articulação) para a ponta
+```
+
+Ela desenha a abertura frontal **côncava**, a **garganta** escura no fundo, a **língua**, a gengiva e os
+**dentes do lado de lá** (menores, mais escuros, recuados — é isso que dá profundidade) e a borda interna
+dos lábios. Opções: `cores { garganta, boca, gengiva, lingua, dente }`, `profundidade`, `lingua`,
+`ladoDeLa`, `dentes { n, tam, de, ate, forma: 'ponta' | 'serra' | 'canino', k }`. Para controlar a ordem de
+desenho (ex.: dentes de baixo por cima da mandíbula), use `dentes: false` e `fileiraDentes(linha, oposta, {...})`.
+A mandíbula de baixo gira em torno da articulação (veja `shark()` em `scenes/shark.js`).
+
 ### Peixes — `skeleton('peixe', { comprimento, segmentos })`
 
 Cabeça (raiz) + segmentos para trás com ±25° por junta. Anime com uma onda na pose (`s1..sN`) ou use

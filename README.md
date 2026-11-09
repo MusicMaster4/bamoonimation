@@ -2,7 +2,7 @@
 
 **Motor de animação 2D ilustrada, feito para agentes de IA escreverem cenas em código e renderizarem vídeo em qualquer FPS.**
 
-O visual-alvo é o de explainers ilustrados no estilo *mid-century / editorial*: formas chapadas com sombra
+O visual-alvo — e o **estilo padrão** de qualquer cena — é o de explainers ilustrados no estilo *mid-century / editorial*: formas chapadas com sombra
 própria em "meia-lua", luz quente e sombras frias, textura de grão e pincel, profundidade de campo
 (fundo enevoado e primeiro plano desfocado) e câmera com parallax. A história é contada com imagem e
 movimento — **sem texto na tela** por padrão.
@@ -220,27 +220,48 @@ Utilitários de cor: `mix(a, b, t)` (OKLab), `lighten`, `darken`, `alpha`, `adj(
 | `profile([...])` | função de perfil suave `u => valor` |
 | `sampleCurve`, `xf`, `mirror`, `ellipsePts`, `polar`, `bboxPts` | utilidades de pontos |
 
-### Câmera e `look`
+### Estilo padrão, luzes, câmera e `look`
+
+**Toda cena já sai no estilo das referências** — não é preciso configurar nada. O estilo padrão
+`ilustrado` aplica automaticamente:
+
+- **pincel seco** (`autoTex`) em toda forma grande e **banho de luz** (`autoLuz`: degradê suave da cor da luz,
+  no lado do sol, para a cor da sombra, no lado oposto), além da sombra própria em meia-lua e do realce;
+- **papel** e **grão de filme**, **névoa atmosférica da cor do céu** nas camadas de fundo, **profundidade de
+  campo** (fundo e primeiro plano desfocados), **bloom**, **vinheta** e **grade de cor** quente com pretos levantados.
+
+Escolha o clima com uma palavra — cada luz traz céu padrão (se a cena não definir `bg`), direção do sol,
+cores de luz e sombra, névoa e grade de cor, calibrados a partir dos benchmarks:
+
+| `look.luz` | uso |
+|---|---|
+| `dia` | céu azul claro, sol alto |
+| `entardecer` | céu dourado, sol baixo e quente (gavião) |
+| `amanhecer` | céu roxo → laranja (foguete) |
+| `interior` | luz quente de luminárias (cafeteria) |
+| `noite` | céu azul-marinho, tudo mais escuro e frio |
+| `subaquatico` | água azul-esverdeada, névoa densa (tubarão) |
+
+![luzes](media/luzes.jpg)
+
+Outros acabamentos: `look: { estilo: 'papel' }` (ilustração impressa: mais papel, grão fixo, manchas) ou
+`'limpo'` (vetor chapado, sem texturas — bom para diagramas). Qualquer chave pode ser sobrescrita:
 
 ```js
-camera: { x, y, zoom, rot, dolly, focus, dof, shake, shakeF }
 look: {
-  sun: [-0.55, -0.85],      // direção PARA a luz (y para baixo) — define todas as sombras próprias
-  light: '#fff2d8',         // cor do realce (lado iluminado)
-  shadow: '#3e3470',        // cor da sombra própria (multiply) — use roxos/azuis
-  shade: 0.42, hl: 0.22,    // força padrão da sombra / realce (0 desliga)
-  shadeD: 0.22, hlD: 0.07, soft: 0.3,   // tamanho e suavidade da "meia-lua"
-  tex: null,                // textura padrão de todas as formas
-  haze: { c: '#c9d6e3', a: 0.5 },       // névoa para z > 1
-  grain: 0.08, grainFps: 12,            // grão de filme (0 = desliga; grainFps 0 = estático)
-  vignette: 0.32, vignetteC: '#1a0f2e',
-  bloom: 0.15,                          // brilho das luzes
-  grade: { sat, con, bri, tint, tintA, lift },  // grade de cor ("lift" ergue os pretos: aspecto de filme)
-  paper: 0, bars: 0,                    // papel global / tarjas de cinema
-  steps: 0,                             // 12 => anima "em dois" (12 poses/s), câmera continua suave
-  mblur: 0, shutter: 0.5,               // motion blur (nº de subquadros) — pode ser função de t
-  caption: { font: 'hand', size: 46, c: '#fff', y: 0.885 },
+  estilo: 'ilustrado', luz: 'entardecer',  // padrão + clima
+  sun: [-0.55, -0.85],      // direção PARA a luz (y para baixo)
+  light: '#fff2d8', shadow: '#43306a',    // cor do realce / da sombra própria (use roxos/azuis)
+  shade: 0.45, hl: 0.26,    // força da sombra / realce (0 desliga)
+  autoTex: { k: 'brush', a: 0.32, s: 0.85, min: 60 },  // textura automática (null desliga); tex: false na forma
+  autoLuz: 0.38,            // banho de luz (0 desliga); luz: false na forma
+  haze: { c: 'auto', a: 0.45 },           // 'auto' = cor do horizonte do céu
+  grain: 0.08, grainFps: 8, paper: 0.16,  // grão (grainFps 0 = fixo, arquivo menor) e papel
+  vignette: 0.42, bloom: 0.26, dof: 5,    // dof padrão (camera.dof sobrescreve)
+  grade: { sat: 1.12, con: 1.08, lift: '#140a16', tint: '#ffb070', tintA: 0.1 },
+  bars: 0, steps: 0, mblur: 0,            // tarjas, animar "em dois" (12), motion blur (subquadros)
 }
+camera: { x, y, zoom, rot, dolly, focus, dof, shake, shakeF }
 ```
 
 Todo item do `look` pode ser animado (ex.: `mblur: t => t > 2 && t < 3 ? 4 : 0`).
@@ -315,6 +336,7 @@ rig({ name: 'cão', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 
 | `rig({ bones, pose, ik, skin, ground, plan, name })` | esqueleto animado: `pose` (ângulos por osso), `ik` (cadeias de 2–3 ossos; escolhe a dobra válida), `skin` (desenhos presos aos ossos, ordem automática lado de lá → lado de cá) |
 | `pessoa({...})` | **figura humana base** pronta (homem/mulher): corpo de perfil anatômico, mãos, pés, rosto com piscar/fala/sorriso, cabelos, barba, óculos, roupas, objetos nas mãos |
 | `caminhada(pessoaOpts, { x, chao })` | andar realista sem patinar (devolve `y`, `pose`, `ik` prontos) |
+| `bocaAberta({ cima, baixo })`, `fileiraDentes()` | **boca aberta de animal** com profundidade: abertura côncava, garganta, língua, gengiva e dentes do lado de lá |
 | `ave({...})`, `ASA`, `bater(t, freq)` | **ave base** (rapina ou pássaro): asa com dobra em Z modelada na própria planta e projetada pela elevação (a borda de fuga fica sempre para trás), poses prontas (planando, freio, dobrada...) e batida realista |
 | `bamoo check` | verificador de anatomia, chão, camadas e texto |
 
@@ -409,6 +431,7 @@ src/
   anatomy.js          esqueletos de referência (humano, quadrúpede, ave, peixe) e regras de proporção
   pessoa.js           figura humana base (homem/mulher) + caminhada anatômica
   ave.js              ave base (rapina/pássaro) com asa anatômica projetada + poses de voo
+  boca.js             boca aberta de animal (garganta, língua, dentes do lado de lá, abertura côncava)
   check.js            verificador (bamoo check)
   textures.js         texturas procedurais
   fonts.js            fontes embutidas

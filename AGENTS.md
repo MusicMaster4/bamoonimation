@@ -34,8 +34,8 @@ import { scene, film, layer, G, blob, circle, rect, taper, particles, rays, lin,
 
 const shot = scene({
   dur: 6, bg: lin(90, '#8fb8de', '#f3d3b0'),
-  look: { sun: [-0.6, -0.8], shadow: '#3e3470', haze: { c: '#c9d6e3', a: 0.5 } },
-  camera: { x: kf([0, 900], [6, 1020]), zoom: kf([0, 1], [6, 1.08]), dof: 6 },
+  look: { luz: 'entardecer' },            // o resto do visual vem do estilo padrão (referências)
+  camera: { x: kf([0, 900], [6, 1020]), zoom: kf([0, 1], [6, 1.08]) },
   layers: [ layer({ z: 6 }, [/* fundo */]), layer({ z: 1 }, [/* ação */]), layer({ z: 0.5 }, [/* 1º plano */]) ],
   fadeIn: 0.6,
 });
@@ -74,6 +74,7 @@ rig({ name: 'coelho', plan: 'quadrupede', bones: skeleton('quadrupede', { altura
 | `poly rect circle ellipse path` | primitivas |
 | `taper(pts, larguras)` | pincelada afinada (cabelo, cauda, capim, dobras) |
 | `line(pts, {stroke, lw})` | traço |
+| `bocaAberta({ cima, baixo })`, `fileiraDentes()` | boca aberta de animal com profundidade (nunca um polígono chapado entre as mandíbulas) |
 | `rig({...})`, `pessoa({...})`, `ave({...})` | personagens com esqueleto (aves: asa anatômica projetada; poses `ASA.*`, batida `bater(t, freq)`) |
 | `particles({...})`, `rays({...})` | fumaça, bolhas, poeira, chuva / feixes de luz |
 | `dyn(t => nós)`, `custom((ctx,t) => ...)`, `img(arq)` | procedural / canvas / imagem |
@@ -81,11 +82,17 @@ rig({ name: 'coelho', plan: 'quadrupede', bones: skeleton('quadrupede', { altura
 Transformação: `x y rot s sx sy px py skx flip alpha show:[t0,t1]`. Estilo: `fill stroke lw shade hl tex glow blur blend drop`
 (`fill shade hl tex sun light shadow stroke lw` são herdados). Pinturas: `lin(ang, ...cores)`, `rad(c, ...cores)`, `['#a','#b']`.
 
-## Câmera e look
-`camera: { x, y, zoom, rot, dolly, focus, dof, shake }` · `look: { sun, light, shadow, shade, hl, haze, grain, grainFps,
-vignette, bloom, grade, bars, steps, mblur }` (tudo animável).
+## Estilo padrão, luz, câmera e look
+**O estilo padrão já é o das referências** (`estilo: 'ilustrado'`): pincel seco automático em formas grandes,
+"banho de luz" (lado do sol quente, lado oposto frio), sombra em meia-lua, papel e grão, névoa da cor do céu,
+profundidade de campo, bloom, vinheta e grade de cor quente. **Não reconfigure isso** — escolha só a luz:
+`look: { luz: 'dia' | 'entardecer' | 'amanhecer' | 'interior' | 'noite' | 'subaquatico' }` (traz céu padrão se
+a cena não tiver `bg`). Outros acabamentos: `estilo: 'papel'` (impresso) ou `'limpo'` (vetor chapado, diagramas).
+Ajustes finos sobrescrevem chaves do estilo: `sun, light, shadow, shade, hl, autoTex, autoLuz, haze, grain,
+grainFps, paper, vignette, bloom, grade, dof, bars, steps, mblur` (tudo animável). `tex: false`/`luz: false` numa forma desliga o automático.
+`camera: { x, y, zoom, rot, dolly, focus, dof, shake }`.
 
-## Estilo
+## Composição
 3+ camadas (fundo enevoado, ação, 1º plano escuro desfocado) · uma luz coerente, sombras frias e luzes quentes ·
 formas grandes com `blob`, detalhes com `taper` · textura sutil · nada parado · câmera sempre se movendo devagar ·
 fundos maiores que a tela (+400 px). Detalhes: `README.md`, `docs/ANATOMIA.md`, cenas em `scenes/`.

@@ -241,7 +241,9 @@ async function cmdBench(file, a) {
 const TEMPLATE = `// Cena nova — veja AGENTS.md (referência rápida) e docs/ANATOMIA.md (personagens). Sem texto na tela por padrão.
 import { scene, film, layer, G, blob, circle, ellipse, rect, taper, line, particles, rays, lin, rad, kf, osc, wig, pessoa } from 'bamoonimation';
 
-const look = { sun: [-0.6, -0.8], light: '#fff1d6', shadow: '#3e3470', haze: { c: '#c9d6e3', a: 0.5 } };
+// O estilo padrão já é o das referências (ilustrado: textura, papel, grão, luz quente, névoa, profundidade).
+// Escolha só a luz: 'dia' | 'entardecer' | 'amanhecer' | 'interior' | 'noite' | 'subaquatico'.
+const look = { luz: 'entardecer' };
 
 const plano1 = scene({
   dur: 5,
