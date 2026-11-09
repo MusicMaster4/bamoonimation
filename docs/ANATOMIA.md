@@ -18,8 +18,9 @@ E bases prontas: **`pessoa()`** (homem e mulher anatômicos) + **`caminhada()`**
 ## Desenhando um sujeito novo (não copie os exemplos)
 
 O motor dá o **estilo** automaticamente; a **forma** é sempre do sujeito pedido. Os personagens dos
-benchmarks (`scenes/`) existem para mostrar técnicas — nunca reaproveite a silhueta, os perfis de corpo,
-as nadadeiras, a paleta ou a composição deles para outro animal.
+benchmarks (`scenes/`) mostram técnicas. Reaproveitar partes é permitido quando a anatomia do sujeito é de
+fato parecida — mas sempre seguido da **revisão de identidade** (passo 6): o resultado tem que ser o que
+foi pedido, não o exemplo com outra cor.
 
 Antes de escrever código para um animal/objeto novo:
 
@@ -37,7 +38,12 @@ Antes de escrever código para um animal/objeto novo:
    peixe na horizontal; felino pisa nos dedos; cavalo no casco).
 4. **Paleta própria**, derivada do sujeito e do ambiente — não da cena de exemplo.
 5. Desenhe numa **prancha de poses** (`export const poseTest`) e compare com a lista do passo 1 antes de
-   animar. Se alguém olhando a silhueta preta confundiria com outro bicho, ainda não está bom.
+   animar.
+6. **Revisão de identidade** (obrigatória se você partiu de algum exemplo, e antes de todo render final):
+   - confira no `still` cada traço da lista do passo 1;
+   - liste o que veio de um exemplo e confirme que cada item existe no sujeito pedido (senão, remova/refaça);
+   - teste da silhueta: só pelo contorno, dá para dizer que é o sujeito pedido e não o exemplo de origem?
+   - movimento: o jeito de se mover é o do sujeito pedido (ex.: orca ondula na vertical, tubarão na horizontal)?
 
 Técnicas reaproveitáveis (essas sim): corpo ao redor de uma espinha com `body()`, ondulação com `wave()`,
 peles presas a ossos, `bocaAberta()`, `ave()`, `pessoa()`, IK com limites.

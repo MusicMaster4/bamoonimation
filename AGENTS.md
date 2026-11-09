@@ -11,11 +11,19 @@ Tudo é função contínua do tempo, então renderiza em qualquer FPS. Coordenad
 2. **Pessoas e animais sempre com esqueleto** (`pessoa()` ou `rig({ bones: skeleton(...) })`). Nunca
    desenhe membros soltos sem limites articulares. Leia `docs/ANATOMIA.md` antes de animar personagens.
 3. **Rode `bamoo check` até zerar os erros** antes do render final.
-4. **Herde o ESTILO, nunca as FORMAS.** O acabamento (luz, sombra, textura, papel, grão, névoa, cor) já vem
-   automático do motor. Os desenhos das cenas em `scenes/` (tubarão, gavião, coelho, casal, foguete) são só
-   exemplos de *técnica* — **não copie nem adapte** suas silhuetas, proporções, paletas ou composições.
-   Cada sujeito novo é desenhado do zero a partir da anatomia real dele (ver "Desenhando um sujeito novo" em
-   `docs/ANATOMIA.md`). Uma orca não é um tubarão pintado de preto e branco.
+4. **Herde o ESTILO; as FORMAS são do que foi pedido.** O acabamento (luz, sombra, textura, papel, grão,
+   névoa, cor) já vem automático do motor. Os desenhos de `scenes/` são exemplos de técnica: você **pode**
+   reaproveitar partes (código, uma nadadeira, a mecânica de uma mandíbula) quando a anatomia do sujeito pedido
+   realmente for parecida — mas **é obrigatório conferir** que o resultado não virou copy-paste:
+   **Revisão de identidade (antes do render):**
+   - Escreva os 4–6 traços que identificam o sujeito pedido (ex.: orca = cabeça arredondada, dorsal alta e reta,
+     peitorais em remo, mancha branca atrás do olho, cauda horizontal, nado vertical).
+   - Olhe um `still` e confira cada traço, um a um. Faltou algum? Corrija.
+   - Liste o que veio de um exemplo e pergunte: "isso existe no sujeito pedido?" (orca não tem guelras,
+     focinho cônico nem cauda vertical de tubarão). Se não existe, remova/refaça.
+   - Teste da silhueta: alguém vendo só o contorno diria que é o sujeito pedido — e não o exemplo de onde
+     você partiu? Se houver dúvida, ainda não está pronto.
+   Uma orca não é um tubarão pintado de preto e branco. Detalhes: "Desenhando um sujeito novo" em `docs/ANATOMIA.md`.
 
 ## Fluxo (barato em tokens)
 

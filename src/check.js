@@ -195,6 +195,7 @@ export function checkFilm(root, { fps = 12, allowText = false } = {}) {
   }
 
   const head = `bamoo check — ${r.timeline.length} plano(s) · ${r.dur.toFixed(1)} s · ${N + 1} amostras (${fps}/s)`;
+  out.push('· revisão manual (o check não detecta): cada personagem/objeto é o que foi pedido? Confira os traços que o identificam no still, remova partes herdadas de exemplos que não existem nele e faça o teste da silhueta (AGENTS.md, regra 4).');
   const tail = errors || warnings ? `Resumo: ${errors} erro(s), ${warnings} aviso(s). Dica: "bamoo still <cena> -t <s> --rig" mostra o esqueleto (vermelho = problema).` : 'Resumo: nenhum problema encontrado.';
   return { lines: [head, ...out, tail], errors, warnings };
 }
