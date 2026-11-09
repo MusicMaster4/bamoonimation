@@ -15,6 +15,33 @@ E bases prontas: **`pessoa()`** (homem e mulher anatômicos) + **`caminhada()`**
 
 ---
 
+## Desenhando um sujeito novo (não copie os exemplos)
+
+O motor dá o **estilo** automaticamente; a **forma** é sempre do sujeito pedido. Os personagens dos
+benchmarks (`scenes/`) existem para mostrar técnicas — nunca reaproveite a silhueta, os perfis de corpo,
+as nadadeiras, a paleta ou a composição deles para outro animal.
+
+Antes de escrever código para um animal/objeto novo:
+
+1. **Liste 4–6 traços que o identificam de longe** (silhueta), em palavras. Ex. — **orca**: cabeça
+   arredondada sem focinho pontudo; nadadeira dorsal enorme e reta (triangular alta no macho); nadadeiras
+   peitorais grandes em forma de **remo arredondado**; padrão preto e branco nítido (mancha branca oval atrás
+   do olho, ventre branco, "sela" cinza atrás da dorsal); cauda horizontal (golfinídeo: nada **ondulando para
+   cima e para baixo**, não de lado); dentes cônicos iguais. **Tubarão**: focinho cônico, boca por baixo,
+   guelras, cauda vertical assimétrica, nada de lado a lado. Se a lista dos dois sujeitos ficar parecida,
+   pesquise mais até ela diferenciá-los.
+2. **Proporções do sujeito real** (comprimento × altura, tamanho da cabeça, posição dos olhos e membros) —
+   escreva os números antes dos pontos.
+3. **Esqueleto e movimento do sujeito real**: escolha o plano (`humano`, `quadrupede` + variante, `ave`,
+   `peixe`) ou monte ossos próprios; descreva como ele se move (ex.: mamífero marinho ondula na vertical,
+   peixe na horizontal; felino pisa nos dedos; cavalo no casco).
+4. **Paleta própria**, derivada do sujeito e do ambiente — não da cena de exemplo.
+5. Desenhe numa **prancha de poses** (`export const poseTest`) e compare com a lista do passo 1 antes de
+   animar. Se alguém olhando a silhueta preta confundiria com outro bicho, ainda não está bom.
+
+Técnicas reaproveitáveis (essas sim): corpo ao redor de uma espinha com `body()`, ondulação com `wave()`,
+peles presas a ossos, `bocaAberta()`, `ave()`, `pessoa()`, IK com limites.
+
 ## Convenções
 
 - Personagens de **perfil, voltados para +x**. Para olhar para a esquerda: `flip: true`.
@@ -153,12 +180,12 @@ Ela desenha a abertura frontal **côncava**, a **garganta** escura no fundo, a *
 dos lábios. Opções: `cores { garganta, boca, gengiva, lingua, dente }`, `profundidade`, `lingua`,
 `ladoDeLa`, `dentes { n, tam, de, ate, forma: 'ponta' | 'serra' | 'canino', k }`. Para controlar a ordem de
 desenho (ex.: dentes de baixo por cima da mandíbula), use `dentes: false` e `fileiraDentes(linha, oposta, {...})`.
-A mandíbula de baixo gira em torno da articulação (veja `shark()` em `scenes/shark.js`).
+A mandíbula de baixo gira em torno da articulação (técnica usada em `scenes/shark.js` — copie a técnica, não o tubarão).
 
 ### Peixes — `skeleton('peixe', { comprimento, segmentos })`
 
 Cabeça (raiz) + segmentos para trás com ±25° por junta. Anime com uma onda na pose (`s1..sN`) ou use
-`wave()` + `body()` como no tubarão (`scenes/shark.js`). Pele de corpo: `{ spine: ['s6', ..., 's1', 'cabeca'], top, bot }`.
+a técnica `wave()` + `body()` (exemplo de uso em `scenes/shark.js` — os perfis de corpo devem ser os do seu animal). Pele de corpo: `{ spine: ['s6', ..., 's1', 'cabeca'], top, bot }`.
 
 ## Peles (desenhos presos ao esqueleto)
 

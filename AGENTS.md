@@ -11,6 +11,11 @@ Tudo é função contínua do tempo, então renderiza em qualquer FPS. Coordenad
 2. **Pessoas e animais sempre com esqueleto** (`pessoa()` ou `rig({ bones: skeleton(...) })`). Nunca
    desenhe membros soltos sem limites articulares. Leia `docs/ANATOMIA.md` antes de animar personagens.
 3. **Rode `bamoo check` até zerar os erros** antes do render final.
+4. **Herde o ESTILO, nunca as FORMAS.** O acabamento (luz, sombra, textura, papel, grão, névoa, cor) já vem
+   automático do motor. Os desenhos das cenas em `scenes/` (tubarão, gavião, coelho, casal, foguete) são só
+   exemplos de *técnica* — **não copie nem adapte** suas silhuetas, proporções, paletas ou composições.
+   Cada sujeito novo é desenhado do zero a partir da anatomia real dele (ver "Desenhando um sujeito novo" em
+   `docs/ANATOMIA.md`). Uma orca não é um tubarão pintado de preto e branco.
 
 ## Fluxo (barato em tokens)
 
@@ -95,4 +100,5 @@ grainFps, paper, vignette, bloom, grade, dof, bars, steps, mblur` (tudo animáve
 ## Composição
 3+ camadas (fundo enevoado, ação, 1º plano escuro desfocado) · uma luz coerente, sombras frias e luzes quentes ·
 formas grandes com `blob`, detalhes com `taper` · textura sutil · nada parado · câmera sempre se movendo devagar ·
-fundos maiores que a tela (+400 px). Detalhes: `README.md`, `docs/ANATOMIA.md`, cenas em `scenes/`.
+fundos maiores que a tela (+400 px). Detalhes: `README.md`, `docs/ANATOMIA.md`. As cenas em `scenes/` mostram
+como usar a API — consulte-as para tirar dúvida de *sintaxe/técnica*, nunca como molde de desenho.

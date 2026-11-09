@@ -404,7 +404,9 @@ pelo olho com `sy: t => blink(t, seed)`), **orelhas/caudas** (`taper` + `rot` co
 
 ## Os benchmarks
 
-Quatro cenas completamente diferentes, construídas só com as primitivas do motor:
+Quatro cenas completamente diferentes, construídas só com as primitivas do motor. Elas demonstram
+**técnicas**; o estilo visual vem do motor em qualquer cena. Agentes não devem copiar estes desenhos para
+outros sujeitos (uma orca é desenhada do zero, não adaptada do tubarão):
 
 | cena | o que exercita |
 |---|---|
