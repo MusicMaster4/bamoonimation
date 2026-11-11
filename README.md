@@ -433,7 +433,12 @@ pelo olho com `sy: t => blink(t, seed)`), **orelhas/caudas** (`taper` + `rot` co
 
 - O render divide os quadros entre **processos** (padrão `núcleos − 2`, máx. 20; ajuste com `--workers`), cada um com
   seu próprio ffmpeg; os segmentos são concatenados sem recodificar. (Processos escalam ~2× melhor que worker threads
-  com o Skia; `--threads` força threads.)
+  com o Skia; `--threads` força threads.) A divisão é dinâmica: quando um worker termina, ele assume a metade final
+  do trecho de quem está mais atrasado — trechos pesados (ação rápida, muitas camadas) não seguram o vídeo inteiro.
+- Cada quadro é conferido contra os vizinhos (assinatura de 32×18) e só é redesenhado se fugir deles — o que
+  pegaria uma camada que sumiu num quadro só — em vez de redesenhar todo quadro com mudança grande.
+- No paralelo, cada worker fica 3–4× mais lento que sozinho: o Skia passa várias vezes por imagens de 8 MB a cada
+  quadro e os workers disputam cache e memória. Memória mais rápida (perfil XMP/EXPO ativo na BIOS) tende a ajudar.
 - Desfoque é o que mais custa no Skia; o motor limita cada blur à área da forma e desenha camadas desfocadas em
   resolução reduzida. Ainda assim: prefira `dof` moderado e `blur` em poucos elementos.
 - `mblur` multiplica o custo pelos subquadros — use só nos trechos rápidos (é animável).

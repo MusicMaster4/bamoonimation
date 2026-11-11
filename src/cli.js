@@ -113,37 +113,79 @@ async function cmdRender(file, a) {
   console.log(`bamoo: ${baseName(file)}  ${r.W}x${r.H} @ ${fps}fps  ${total} frames  ${nW} workers  -> ${out}`);
   const t0 = Date.now();
   let done = 0, falhas = 0;
+  // ESCALONAMENTO DINÂMICO: cada worker começa com um bloco contíguo; quando um termina, o principal corta a
+  // metade final do bloco de quem tem mais quadros pela frente e entrega ao ocioso (cada pedaço vira um segmento).
+  // Com blocos fixos, o bloco mais pesado (ação rápida, muitas camadas) segurava o vídeo inteiro: 1,4–2× a média.
   const chunk = Math.ceil(total / nW);
+  const MIN = 4; // menor pedaço que vale a pena dividir
   const segs = [];
-  const jobs = [];
-  for (let w = 0; w < nW; w++) {
-    const a0 = f0 + w * chunk, a1 = Math.min(f1, a0 + chunk);
-    if (a1 <= a0) break;
-    const seg = codec === 'png' ? out : path.join(tmp, `seg_${String(w).padStart(3, '0')}.${segExt}`);
-    segs.push(seg);
-    jobs.push(
-      new Promise((res, rej) => {
-        const job = { file: path.resolve(file), a0, a1, fps, scale, seg, codec, crf: num(a.crf, 20), preset: a.preset ?? 'medium' };
-        const script = fileURLToPath(new URL('./worker.js', import.meta.url));
-        // processos separados escalam bem melhor que worker threads com o Skia
-        const wk = a.threads ? new Worker(script, { workerData: job }) : fork(script, [JSON.stringify(job)], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
-        wk.on('message', m => {
-          if (m.done) falhas += m.falhas ?? 0;
-          if (m.frame !== undefined) {
-            done++;
-            if (done % 2 === 0 || done === total) bar(done, total, t0);
-          }
-        });
-        wk.on('error', rej);
-        wk.on('exit', c => (c ? rej(new Error(`worker saiu com código ${c}`)) : res()));
-      }),
-    );
-  }
-  await Promise.all(jobs);
+  let segN = 0;
+  const newSeg = a0 => {
+    const p = codec === 'png' ? out : path.join(tmp, `seg_${String(segN++).padStart(4, '0')}.${segExt}`);
+    if (codec !== 'png') segs.push({ a0, p });
+    return p;
+  };
+  const script = fileURLToPath(new URL('./worker.js', import.meta.url));
+  const cfg = { file: path.resolve(file), fps, scale, codec, crf: num(a.crf, 20), preset: a.preset ?? 'medium' };
+  const W = [];
+  await new Promise((resolve, reject) => {
+    let vivos = 0;
+    const assign = (w, a0, a1) => {
+      w.a0 = a0;
+      w.end = a1;
+      w.cur = a0 - 1;
+      w.busy = true;
+      w.send({ run: { a0, a1, seg: newSeg(a0) } });
+    };
+    // worker ocioso: rouba a metade final de quem tem mais trabalho pela frente
+    const feed = w => {
+      w.busy = false;
+      let best = null, rem = 0;
+      for (const v of W) {
+        if (v === w || !v.busy || v.cutting) continue;
+        const r = v.end - (v.cur + 1) - 3; // o worker pode estar até 2 quadros adiante (verificação por vizinhos)
+        if (r > rem) [best, rem] = [v, r];
+      }
+      if (!best || rem < 2 * MIN) return w.send({ stop: true });
+      best.cutting = { thief: w, oldEnd: best.end };
+      best.send({ cut: best.end - Math.floor(rem / 2) });
+    };
+    for (let i = 0; i < nW; i++) {
+      const a0 = f0 + i * chunk, a1 = Math.min(f1, a0 + chunk);
+      if (a1 <= a0) break;
+      // processos separados escalam bem melhor que worker threads com o Skia
+      const wk = a.threads ? new Worker(script, { workerData: cfg }) : fork(script, [JSON.stringify(cfg)], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+      const w = { wk, send: m => (a.threads ? wk.postMessage(m) : wk.send(m)), busy: false };
+      W.push(w);
+      vivos++;
+      wk.on('message', m => {
+        if (m.frame !== undefined) {
+          w.cur = m.frame;
+          done++;
+          if (done % 2 === 0 || done === total) bar(done, total, t0);
+        } else if (m.ready) assign(w, a0, a1);
+        else if (m.segDone) feed(w);
+        else if (m.cutAck !== undefined) {
+          const { thief, oldEnd } = w.cutting;
+          w.cutting = null;
+          if (m.cutAck !== null && m.cutAck < oldEnd) {
+            w.end = m.cutAck;
+            assign(thief, m.cutAck, oldEnd);
+          } else feed(thief);
+        } else if (m.done) falhas += m.falhas ?? 0;
+      });
+      wk.on('error', reject);
+      wk.on('exit', c => {
+        if (c) return reject(new Error(`worker saiu com código ${c}`));
+        if (--vivos === 0) resolve();
+      });
+    }
+  });
+  segs.sort((x, y) => x.a0 - y.a0);
   if (process.stdout.isTTY) process.stdout.write('\n');
   if (codec !== 'png') {
     const list = path.join(tmp, 'list.txt');
-    writeFileSync(list, segs.map(s => `file '${s.replace(/\\/g, '/')}'`).join('\n'));
+    writeFileSync(list, segs.map(s => `file '${s.p.replace(/\\/g, '/')}'`).join('\n'));
     const target = format === 'gif' ? path.join(tmp, 'full.mp4') : out;
     const args = ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', list];
     if (a.audio && format !== 'gif') args.push('-i', path.resolve(a.audio), '-c:v', 'copy', '-c:a', 'aac', '-shortest');
@@ -162,7 +204,7 @@ async function cmdRender(file, a) {
   const secs = (Date.now() - t0) / 1000;
   if (falhas > Math.max(3, total * 0.03))
     console.log(`bamoo: ATENÇÃO — ${falhas} quadros saíram diferentes ao serem desenhados de novo: a CENA não é determinística (sorteio dentro de funções de t, Math.random, Date...). O vídeo vai piscar. Rode "bamoo check" para achar onde.`);
-  else if (falhas) console.log(`bamoo: ${falhas} quadro(s) com falha aleatória do desfoque do Skia foram detectados e redesenhados (sem flicker no vídeo).`);
+  else if (falhas) console.log(`bamoo: ${falhas} quadro(s) saíram diferentes ao serem redesenhados e foram corrigidos por votação (sem flicker no vídeo).`);
   const size = codec === 'png' ? '' : `  ${(statSync(out).size / 1e6).toFixed(1)} MB`;
   console.log(`ok: ${out}  (${secs.toFixed(1)}s, ${(total / secs).toFixed(1)} fps de render)${size}`);
 }

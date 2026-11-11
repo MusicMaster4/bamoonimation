@@ -172,7 +172,8 @@ Cada quadro é calculado do zero (é isso que permite render paralelo em qualque
 uma função de t — `alpha: t => r()`, `x: t => r.range(...) + ...`, `Math.random()` — dá um valor novo a cada
 quadro e a forma pisca ou pula. Sorteie **uma vez** na montagem e use o valor dentro da função; para variar no tempo
 use `noise`, `wig`, `osc`. O `bamoo check` acusa cena não determinística (e mostra a região). O `render` também
-redesenha automaticamente os raros quadros em que o desfoque do Skia falha e devolve uma camada vazia.
+confere cada quadro contra os vizinhos e redesenha o raro quadro em que uma camada inteira some (e avisa se a cena
+não for determinística).
 
 ## Ligar, desligar, ajustar
 

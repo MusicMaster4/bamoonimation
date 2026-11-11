@@ -30,6 +30,38 @@ test('quadros com camada desfocada "sumida" são detectados e redesenhados', () 
   assert.ok(r.falhas > 0, 'a falha injetada foi detectada');
 });
 
+test('render de vídeo (quadros verificados pelos vizinhos): camada sumida é detectada e redesenhada', () => {
+  const ref = new Renderer(sc, { scale: 0.25 });
+  const r = new Renderer(sc, { scale: 0.25 });
+  let n = 0, desenhos = 0;
+  const draw = r.drawLayer.bind(r);
+  r.drawLayer = (ctx, L, ...rest) => {
+    if (L.z !== 0.5) return draw(ctx, L, ...rest);
+    desenhos++;
+    return ++n % 7 === 3 ? undefined : draw(ctx, L, ...rest);
+  };
+  const st = { end: 40 };
+  let f0 = 0;
+  for (const [f, a] of r.quadros(0, st)) {
+    assert.equal(f, f0++, 'quadros em ordem');
+    if (f === 20) st.end = 30; // o principal encurta o intervalo no meio (divisão de trabalho)
+    const b = ref.pixels(f / 30, f);
+    let m = 0;
+    for (let i = 0; i < a.length; i += 4) m = Math.max(m, Math.abs(a[i] - b[i]));
+    assert.ok(m <= 2, `quadro ${f}: difere da referência em ${m}`);
+  }
+  assert.equal(f0, 30, 'parou no fim encurtado');
+  assert.ok(r.falhas > 0, 'a falha injetada foi detectada');
+  // sem falhas, quase nenhum quadro é desenhado duas vezes
+  const limpo = new Renderer(sc, { scale: 0.25 });
+  let px = 0;
+  const p = limpo.pixels.bind(limpo);
+  limpo.pixels = (...x) => (px++, p(...x));
+  for (const _ of limpo.quadros(0, { end: 30 })) void _;
+  assert.ok(px <= 33, `redesenhos demais sem falha: ${px} desenhos para 30 quadros`);
+  assert.ok(desenhos > 30);
+});
+
 test('rng sorteado dentro de função de t é detectado (a cena piscaria)', async () => {
   const { scatter, RNG_MONITOR } = await import('../src/index.js');
   const ruim = scene({ dur: 1, bg: '#000', layers: [layer(scatter(5, 1, r => circle(100, 100, 5, { fill: '#fff', alpha: t => r() })))] });

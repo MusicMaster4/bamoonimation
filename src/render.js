@@ -1005,18 +1005,27 @@ export class Renderer {
     if (blur > 0) ctx.restore();
     if (fill && !(blur > 0) && !blend) {
       const size = sizeHint ?? min(g.bb[2] - g.bb[0], g.bb[3] - g.bb[1]);
-      const tex = this.st(n, 'tex', inh, t, env);
-      if (tex) this.applyTex(ctx, g, tex, rule);
-      else if (tex == null) {
+      let tex = this.st(n, 'tex', inh, t, env);
+      if (tex == null) {
         // textura automática do estilo (pincel seco em superfícies grandes); tex: false desliga
         const at = inh.look?.autoTex;
-        if (at && size * ds >= (at.min ?? 70) * this.s) this.applyTex(ctx, g, at, rule);
+        tex = at && size * ds >= (at.min ?? 70) * this.s ? at : null;
       }
       const lz = inh.look?.autoLuz;
-      if (lz > 0 && n.luz !== false && size * ds >= 50 * this.s) this.applyWash(ctx, g, lz, inh, M, rule);
+      const wash = lz > 0 && n.luz !== false && size * ds >= 50 * this.s;
       const shade = this.st(n, 'shade', inh, t, env);
       const hl = this.st(n, 'hl', inh, t, env);
-      if ((shade || hl) && size * ds > 5) this.applyShade(ctx, g, size, shade, hl, inh, M, ds, rule);
+      const sh = (shade || hl) && size * ds > 5;
+      if (tex || wash || sh) {
+        // um único recorte pela forma para textura, banho de luz, sombra e realce (antes: um clip por efeito;
+        // o recorte é o mesmo, então o resultado é idêntico e o Skia monta a máscara de cobertura uma vez só)
+        ctx.save();
+        ctx.clip(g.path, rule);
+        if (tex) this.applyTex(ctx, g, tex, rule, true);
+        if (wash) this.applyWash(ctx, g, lz, inh, M, rule, true);
+        if (sh) this.applyShade(ctx, g, size, shade, hl, inh, M, ds, rule, true);
+        ctx.restore();
+      }
     }
     if (stroke) {
       ctx.lineWidth = this.st(n, 'lw', inh, t, env) ?? 2;
@@ -1069,7 +1078,7 @@ export class Renderer {
     }
   }
 
-  applyTex(ctx, g, spec, rule) {
+  applyTex(ctx, g, spec, rule, clipped = false) {
     let k = 'grain', a, s = 1, rot = 0, mode;
     if (typeof spec === 'string') k = spec;
     else if (typeof spec === 'number') a = spec;
@@ -1086,7 +1095,7 @@ export class Renderer {
     const r = (rot * PI) / 180;
     pat.setTransform(new DOMMatrix([cos(r) * s, sin(r) * s, -sin(r) * s, cos(r) * s, 0, 0]));
     ctx.save();
-    ctx.clip(g.path, rule);
+    if (!clipped) ctx.clip(g.path, rule);
     ctx.globalCompositeOperation = blendOp(mode ?? def[0]);
     ctx.globalAlpha *= a ?? def[1];
     ctx.fillStyle = pat;
@@ -1096,7 +1105,7 @@ export class Renderer {
   }
 
   /** Banho de luz: degradê soft-light da cor da luz (lado do sol) para a cor da sombra (lado oposto). */
-  applyWash(ctx, g, a, inh, M, rule) {
+  applyWash(ctx, g, a, inh, M, rule, clipped = false) {
     const inv = M.inverse();
     const sun = inh.sun ?? [-0.55, -0.85];
     let lx = inv.a * sun[0] + inv.c * sun[1], ly = inv.b * sun[0] + inv.d * sun[1];
@@ -1110,7 +1119,7 @@ export class Renderer {
     gr.addColorStop(0.5, '#808080');
     gr.addColorStop(1, inh.shadow ?? '#43306a');
     ctx.save();
-    ctx.clip(g.path, rule);
+    if (!clipped) ctx.clip(g.path, rule);
     ctx.globalCompositeOperation = 'soft-light';
     ctx.globalAlpha *= min(1, a);
     ctx.fillStyle = gr;
@@ -1119,7 +1128,7 @@ export class Renderer {
   }
 
   /** Sombra própria + realce em "meia-lua" a partir da direção da luz (o visual ilustrado). */
-  applyShade(ctx, g, size, shade, hl, inh, M, ds, rule) {
+  applyShade(ctx, g, size, shade, hl, inh, M, ds, rule, clipped = false) {
     const inv = M.inverse();
     const sun = inh.sun ?? [-0.55, -0.85];
     let lx = inv.a * sun[0] + inv.c * sun[1], ly = inv.b * sun[0] + inv.d * sun[1];
@@ -1151,7 +1160,7 @@ export class Renderer {
       const steps = !useBlur && bp > 0.6 ? [0.8, 1.2] : [1];
       const pad = d * 1.3 + (useBlur ? bp / ds * 3 : 0) + 2;
       ctx.save();
-      ctx.clip(g.path, rule);
+      if (!clipped) ctx.clip(g.path, rule);
       ctx.globalCompositeOperation = op;
       ctx.globalAlpha *= min(1, a) / steps.length;
       ctx.fillStyle = o.c ?? color;
@@ -1589,8 +1598,10 @@ export class Renderer {
   /** Frame final como Buffer RGBA (grade de cor, vinheta e grão aplicados em um único passe). */
   pixels(T, frameIndex = round(T * this.fps)) {
     this.frame(T, frameIndex);
-    const buf = Buffer.from(this.main.data());
-    this.postPixels(buf, this.curLook, frameIndex);
+    const src = this.main.data();
+    // a cópia para o buffer de saída sai junto com a grade/vinheta/grão (uma passada só pela memória)
+    const buf = Buffer.allocUnsafe(src.length);
+    this.postPixels(src, buf, this.curLook, frameIndex);
     return buf;
   }
 
@@ -1636,9 +1647,57 @@ export class Renderer {
     return buf;
   }
 
+  /**
+   * Quadros [a0, st.end) em ordem, VERIFICADOS PELOS VIZINHOS — o caminho do render de vídeo. Um quadro só é
+   * redesenhado se a assinatura dele foge das de dois vizinhos mais do que os vizinhos diferem entre si (o que
+   * acontece quando uma camada some num quadro só); movimento rápido e cortes quase nunca disparam, porque o quadro
+   * fica "entre" os vizinhos. (pixelsVerificado redesenha todo quadro com mudança grande: 50–90% dos quadros.)
+   * Segura até 2 quadros adiante. st = { end, next }: st.end pode diminuir durante o render (divisão de trabalho
+   * entre workers); st.next é o próximo quadro a desenhar (nunca é cortado o que já foi desenhado).
+   */
+  *quadros(a0, st) {
+    const fps = this.fps, win = [];
+    st.next = a0;
+    let p1 = null, p2 = null; // assinaturas dos 2 últimos quadros entregues
+    const draw = f => ({ f, buf: this.pixels(f / fps, f), s: this.signature() });
+    for (;;) {
+      const head = win[0];
+      const need = head ? head.f + (p1 ? 1 : 2) : st.next;
+      if (st.next < st.end && st.next <= need) {
+        win.push(draw(st.next++));
+        continue;
+      }
+      if (!win.length) return;
+      const h = win.shift(), n1 = win[0], n2 = win[1];
+      const viz = p1 && n1 ? [p1, n1.s] : !p1 && n1 && n2 ? [n1.s, n2.s] : p1 && p2 ? [p1, p2] : null;
+      let { buf, s } = h;
+      if (!viz || desvio(s, viz[0], viz[1]) > 120) ({ buf, s } = this.confirmar(h.f / fps, h.f, buf, s, viz));
+      p2 = p1;
+      p1 = s;
+      yield [h.f, buf];
+    }
+  }
+
+  /** Redesenha um quadro suspeito; se a nova versão diverge, desenha uma terceira e fica a maioria. */
+  confirmar(T, frameIndex, buf, s, viz) {
+    const buf2 = this.pixels(T, frameIndex), s2 = this.signature();
+    if (difSig(s, s2) <= 1.5) return { buf, s };
+    this.falhas = (this.falhas ?? 0) + 1;
+    const buf3 = this.pixels(T, frameIndex), s3 = this.signature();
+    if (difSig(s2, s3) <= 1.5) return { buf: buf3, s: s3 };
+    if (difSig(s, s3) <= 1.5 || !viz) return { buf, s };
+    // as três divergem: fica a mais coerente com os vizinhos
+    const c = [{ buf, s }, { buf: buf2, s: s2 }, { buf: buf3, s: s3 }];
+    return c.sort((x, y) => desvio(x.s, viz[0], viz[1]) - desvio(y.s, viz[0], viz[1]))[0];
+  }
+
   /** Frame final como canvas (para PNG / folhas de contato). */
   image(T, frameIndex = round(T * this.fps), verificar = false) {
-    const buf = verificar ? this.pixelsVerificado(T, frameIndex) : this.pixels(T, frameIndex);
+    return this.canvasDe(verificar ? this.pixelsVerificado(T, frameIndex) : this.pixels(T, frameIndex));
+  }
+
+  /** Canvas com os pixels finais `buf` (+ grade/legenda de depuração). */
+  canvasDe(buf) {
     if (!this.out) this.out = createCanvas(this.W, this.H);
     const ctx = this.out.getContext('2d');
     resetCtx(ctx);
@@ -1708,15 +1767,47 @@ export class Renderer {
     return (this._grain = g);
   }
 
-  postPixels(buf, look, frameIndex) {
-    if (!look || this.sil) return;
+  /**
+   * Grade de cor + vinheta + grão: lê `src` (pixels do Skia) e escreve `dst` (pode ser o mesmo buffer).
+   * Mesma aritmética da versão original (resultado idêntico byte a byte), só reorganizada para ser rápida:
+   * LUT única por canal quando não há saturação, fatores da vinheta por bloco calculados uma vez,
+   * leitura/escrita de 32 bits por pixel e laços especializados para cada combinação de efeitos.
+   */
+  postPixels(src, dst, look, frameIndex) {
     const W = this.W, H = this.H;
+    const copy = () => {
+      if (dst !== src) dst.set(src);
+    };
+    if (!look || this.sil) return copy();
     const gr = look.grade || {};
     const sat = gr.sat ?? 1, con = gr.con ?? 1, bri = gr.bri ?? 1;
-    const vig = look.vignette > 0 ? this.vignetteMap(look, this.curFocus) : null;
-    const W4 = this._vigW4;
+    const vig = look.vignette > 0 ? this.vignetteFactors(look, this.curFocus) : null;
     const grain = look.grain > 0 ? look.grain : 0;
-    if (sat === 1 && con === 1 && bri === 1 && !gr.lift && !gr.tint && !vig && !grain) return;
+    if (sat === 1 && con === 1 && bri === 1 && !gr.lift && !gr.tint && !vig && !grain) return copy();
+    const lut = this.gradeLuts(gr, bri, con);
+    const tile = grain ? this.grainTileK(grain * 255 * 0.32) : null;
+    const gi = look.grainFps > 0 ? floor((frameIndex / this.fps) * look.grainFps) : 0;
+    const ox = floor(hash(gi, 3) * 256), oy = floor(hash(gi, 5) * 256);
+    const gsh = this.s > 1.4 ? 1 : 0;
+    const s32 = u32(src), d32 = u32(dst);
+    const W4 = vig ? vig.W4 : 0, VR = vig?.r, VG = vig?.g, VB = vig?.b;
+    if (sat !== 1) postSat(s32, d32, W, H, lut, sat, VR, VG, VB, W4, tile, gsh, ox, oy);
+    else postLut(s32, d32, W, H, lut, VR, VG, VB, W4, tile, gsh, ox, oy);
+  }
+
+  /** Bloco de grão (256×256) já multiplicado pela força k (mesmo produto da conta original). */
+  grainTileK(k) {
+    if (this._grainKk === k) return this._grainK;
+    const g = this.grainTile(), o = new Float64Array(g.length);
+    for (let i = 0; i < g.length; i++) o[i] = g[i] * k;
+    this._grainKk = k;
+    return (this._grainK = o);
+  }
+
+  /** LUTs da grade (cacheadas pela combinação de parâmetros). */
+  gradeLuts(gr, bri, con) {
+    const key = `${bri}|${con}|${gr.tint}|${gr.tintA}|${gr.lift}`;
+    if (this._lutKey === key) return this._lut;
     // LUT 1: brilho + contraste (igual para todos os canais)
     const L1 = new Float32Array(256);
     for (let i = 0; i < 256; i++) L1[i] = (i * bri - 127.5) * con + 127.5;
@@ -1736,48 +1827,43 @@ export class Renderer {
         L2[c][i] = v;
       }
     }
-    const [R2, G2, B2] = L2;
+    // LUT combinada (sem saturação): L2[clamp(L1[i]) | 0]
+    const C = L2.map(T => {
+      const o = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) {
+        const v = L1[i];
+        o[i] = T[v < 0 ? 0 : v > 255 ? 255 : v | 0];
+      }
+      return o;
+    });
+    // produtos da luminância (mesma conta, feita uma vez por valor)
+    const KR = new Float64Array(256), KG = new Float64Array(256), KB = new Float64Array(256), F1 = new Float64Array(256);
+    for (let i = 0; i < 256; i++) {
+      F1[i] = L1[i];
+      KR[i] = 0.2126 * L1[i];
+      KG[i] = 0.7152 * L1[i];
+      KB[i] = 0.0722 * L1[i];
+    }
+    this._lutKey = key;
+    return (this._lut = { L1: F1, KR, KG, KB, R2: L2[0], G2: L2[1], B2: L2[2], CR: C[0], CG: C[1], CB: C[2] });
+  }
+
+  /** Fatores multiplicativos da vinheta por bloco de 4×4 px e por canal (1 − peso × (1 − cor)). */
+  vignetteFactors(look, focus) {
+    const m = this.vignetteMap(look, focus);
+    const key = `${this._vigKey}|${look.vignetteC ?? '#000'}`;
+    if (this._vigFKey === key) return this._vigF;
     const vc = rgba(look.vignetteC ?? '#000');
     const vr = 1 - vc[0] / 255, vg = 1 - vc[1] / 255, vb = 1 - vc[2] / 255;
-    const tile = grain ? this.grainTile() : null;
-    const gi = look.grainFps > 0 ? floor((frameIndex / this.fps) * look.grainFps) : 0;
-    const ox = floor(hash(gi, 3) * 256), oy = floor(hash(gi, 5) * 256);
-    const gsh = this.s > 1.4 ? 1 : 0;
-    const gk = grain * 255 * 0.32;
-    const doSat = sat !== 1;
-    for (let y = 0; y < H; y++) {
-      const row = y * W, vrow = (y >> 2) * W4;
-      const trow = (((y >> gsh) + oy) & 255) << 8;
-      for (let x = 0; x < W; x++) {
-        const i = (row + x) << 2;
-        let r = L1[buf[i]], g = L1[buf[i + 1]], b = L1[buf[i + 2]];
-        if (doSat) {
-          const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-          r = l + (r - l) * sat;
-          g = l + (g - l) * sat;
-          b = l + (b - l) * sat;
-        }
-        r = R2[r < 0 ? 0 : r > 255 ? 255 : r | 0];
-        g = G2[g < 0 ? 0 : g > 255 ? 255 : g | 0];
-        b = B2[b < 0 ? 0 : b > 255 ? 255 : b | 0];
-        if (vig) {
-          const w = vig[vrow + (x >> 2)];
-          r *= 1 - w * vr;
-          g *= 1 - w * vg;
-          b *= 1 - w * vb;
-        }
-        if (tile) {
-          const l = (r + g + b) * (1 / 765);
-          const d = tile[trow + (((x >> gsh) + ox) & 255)] * gk * (0.3 + 2.8 * l * (1 - l));
-          r += d;
-          g += d;
-          b += d;
-        }
-        buf[i] = r < 0 ? 0 : r > 255 ? 255 : r;
-        buf[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
-        buf[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
-      }
+    const n = m.length, r = new Float64Array(n), g = new Float64Array(n), b = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const w = m[i];
+      r[i] = 1 - w * vr;
+      g[i] = 1 - w * vg;
+      b[i] = 1 - w * vb;
     }
+    this._vigFKey = key;
+    return (this._vigF = { r, g, b, W4: this._vigW4 });
   }
 
   // ---------- esqueletos ----------
@@ -2073,6 +2159,89 @@ function horizonte(bg) {
     }
   }
   return pts[pts.length - 1][1];
+}
+
+// Laços do pós-processamento (grade + vinheta + grão), especializados por caso para o JIT. A aritmética é
+// exatamente a da versão original (mesma ordem de operações em double), então o resultado é idêntico byte a byte.
+function postSat(s32, d32, W, H, lut, sat, VR, VG, VB, W4, tile, gsh, ox, oy) {
+  const { L1, KR, KG, KB, R2, G2, B2 } = lut;
+  for (let y = 0; y < H; y++) {
+    const row = y * W, vrow = (y >> 2) * W4;
+    const trow = (((y >> gsh) + oy) & 255) << 8;
+    for (let x = 0; x < W; x++) {
+      const p = row + x;
+      const px = s32[p];
+      const i0 = px & 255, i1 = (px >>> 8) & 255, i2 = (px >>> 16) & 255;
+      const l = KR[i0] + KG[i1] + KB[i2];
+      let r = l + (L1[i0] - l) * sat;
+      let g = l + (L1[i1] - l) * sat;
+      let b = l + (L1[i2] - l) * sat;
+      r = R2[r < 0 ? 0 : r > 255 ? 255 : r | 0];
+      g = G2[g < 0 ? 0 : g > 255 ? 255 : g | 0];
+      b = B2[b < 0 ? 0 : b > 255 ? 255 : b | 0];
+      d32[p] = postTail(px, r, g, b, VR, VG, VB, vrow + (x >> 2), tile, trow + (((x >> gsh) + ox) & 255));
+    }
+  }
+}
+
+function postLut(s32, d32, W, H, lut, VR, VG, VB, W4, tile, gsh, ox, oy) {
+  const { CR, CG, CB } = lut;
+  for (let y = 0; y < H; y++) {
+    const row = y * W, vrow = (y >> 2) * W4;
+    const trow = (((y >> gsh) + oy) & 255) << 8;
+    for (let x = 0; x < W; x++) {
+      const p = row + x;
+      const px = s32[p];
+      d32[p] = postTail(px, CR[px & 255], CG[(px >>> 8) & 255], CB[(px >>> 16) & 255], VR, VG, VB, vrow + (x >> 2), tile, trow + (((x >> gsh) + ox) & 255));
+    }
+  }
+}
+
+/** Vinheta (fator por bloco) + grão + saturação/truncamento em [0,255]; devolve o pixel RGBA de 32 bits. */
+function postTail(px, r, g, b, VR, VG, VB, k, tile, ti) {
+  if (VR) {
+    r *= VR[k];
+    g *= VG[k];
+    b *= VB[k];
+  }
+  if (tile) {
+    const l = (r + g + b) * (1 / 765);
+    const d = tile[ti] * (0.3 + 2.8 * l * (1 - l));
+    r += d;
+    g += d;
+    b += d;
+  }
+  r = r < 0 ? 0 : r > 255 ? 255 : r | 0;
+  g = g < 0 ? 0 : g > 255 ? 255 : g | 0;
+  b = b < 0 ? 0 : b > 255 ? 255 : b | 0;
+  return ((px & 0xff000000) | (b << 16) | (g << 8) | r) >>> 0;
+}
+
+/** Maior diferença entre duas assinaturas de quadro. */
+function difSig(a, b) {
+  let m = 0;
+  for (let i = 0; i < a.length; i++) m = max(m, abs(a[i] - b[i]));
+  return m;
+}
+
+/**
+ * Quanto a assinatura s foge dos vizinhos a e b além do que eles diferem entre si, somado nas células (acima de
+ * uma folga de 4 níveis). Uma camada que some num quadro dá centenas a milhares; movimento normal (mesmo rápido,
+ * asas batendo) fica quase sempre abaixo de 100, porque o quadro está "entre" os vizinhos ou só poucas células mudam.
+ */
+function desvio(s, a, b) {
+  let m = 0;
+  for (let i = 0; i < s.length; i++) {
+    const e = min(abs(s[i] - a[i]), abs(s[i] - b[i])) - abs(a[i] - b[i]);
+    if (e > 4) m += e - 4;
+  }
+  return m;
+}
+
+/** Vista Uint32 (um pixel RGBA por elemento) de um Buffer/Uint8Array alinhado. */
+function u32(b) {
+  if (b.byteOffset & 3) throw new Error('bamoo: buffer de pixels desalinhado');
+  return new Uint32Array(b.buffer, b.byteOffset, b.length >> 2);
 }
 
 /** Recorta o contexto à caixa bb expandida (limita o custo de filtros de blur). */
