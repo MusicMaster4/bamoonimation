@@ -19,9 +19,9 @@ Uso:
   bamoo render <cena.js> [-o out.mp4] [--fps 30] [--scale 1] [--from s] [--to s]
                          [--workers N] [--crf 18] [--preset medium] [--audio arquivo]
                          [--format mp4|webm|mov|gif|png]
-  bamoo still  <cena.js> [-t 2.5 | -t 0,1.5,3] [--scale 0.5] [--grid] [--rig] [--layers] [-o arquivo.png]
-  bamoo sheet  <cena.js> [-n 12] [--cols 4] [--scale 0.25] [--from s] [--to s] [--grid] [--rig] [--layers] [-o folha.jpg]
-  bamoo check  <cena.js> [--fps 12] [--allow-text]   verifica camadas, texto e anatomia (rigs)
+  bamoo still  <cena.js> [-t 2.5 | -t 0,1.5,3] [--scale 0.5] [--grid] [--rig] [--layers] [--arcos] [--silhueta] [-o arquivo.png]
+  bamoo sheet  <cena.js> [-n 12] [--cols 4] [--scale 0.25] [--from s] [--to s] [--grid] [--rig] [--layers] [--arcos] [--silhueta] [-o folha.jpg]
+  bamoo check  <cena.js> [--fps 12] [--allow-text]   verifica camadas, texto, anatomia e princípios de animação
   bamoo new    <cena.js>                      cria uma cena a partir do modelo
   bamoo info   <cena.js>
   bamoo bench  <cena.js> [-n 12] [--scale 1]
@@ -29,6 +29,9 @@ Uso:
 Dicas:
   • Itere com "sheet" (1 imagem com 12 momentos) e "still --grid" (grade de coordenadas).
   • "check" antes do render; "--rig" mostra esqueletos, "--layers" tinge cada camada.
+  • "--arcos" desenha as trilhas (±0.6 s) de mãos, pés e cabeça: confira arcos e espaçamento (slow in/out).
+  • "--silhueta" é o teste de staging: a ação (plano focal) em preto chapado tem que se ler sozinha.
+  • Os 12 princípios da animação já vêm aplicados pelo motor — veja docs/PRINCIPIOS.md.
   • Render final: "render --fps 60" (qualquer FPS; a cena é função contínua do tempo).
   • Arquivos de saída vão para ./out por padrão.`;
 
@@ -109,7 +112,7 @@ async function cmdRender(file, a) {
   if (codec === 'png') mkdirSync(out, { recursive: true });
   console.log(`bamoo: ${baseName(file)}  ${r.W}x${r.H} @ ${fps}fps  ${total} frames  ${nW} workers  -> ${out}`);
   const t0 = Date.now();
-  let done = 0;
+  let done = 0, falhas = 0;
   const chunk = Math.ceil(total / nW);
   const segs = [];
   const jobs = [];
@@ -125,6 +128,7 @@ async function cmdRender(file, a) {
         // processos separados escalam bem melhor que worker threads com o Skia
         const wk = a.threads ? new Worker(script, { workerData: job }) : fork(script, [JSON.stringify(job)], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
         wk.on('message', m => {
+          if (m.done) falhas += m.falhas ?? 0;
           if (m.frame !== undefined) {
             done++;
             if (done % 2 === 0 || done === total) bar(done, total, t0);
@@ -156,6 +160,9 @@ async function cmdRender(file, a) {
   }
   rmSync(tmp, { recursive: true, force: true });
   const secs = (Date.now() - t0) / 1000;
+  if (falhas > Math.max(3, total * 0.03))
+    console.log(`bamoo: ATENÇÃO — ${falhas} quadros saíram diferentes ao serem desenhados de novo: a CENA não é determinística (sorteio dentro de funções de t, Math.random, Date...). O vídeo vai piscar. Rode "bamoo check" para achar onde.`);
+  else if (falhas) console.log(`bamoo: ${falhas} quadro(s) com falha aleatória do desfoque do Skia foram detectados e redesenhados (sem flicker no vídeo).`);
   const size = codec === 'png' ? '' : `  ${(statSync(out).size / 1e6).toFixed(1)} MB`;
   console.log(`ok: ${out}  (${secs.toFixed(1)}s, ${(total / secs).toFixed(1)} fps de render)${size}`);
 }
@@ -167,7 +174,7 @@ const timesArg = (v, dur) => {
 
 async function cmdStill(file, a) {
   const root = await loadScene(file);
-  const r = new Renderer(root, { scale: num(a.scale, 0.5), fps: num(a.fps, 30), debug: !!a.grid, rig: !!a.rig, layers: !!a.layers });
+  const r = new Renderer(root, { scale: num(a.scale, 0.5), fps: num(a.fps, 30), debug: !!a.grid, rig: !!a.rig, layers: !!a.layers, arcos: !!a.arcos, silhueta: !!a.silhueta });
   const ts = timesArg(a.t, r.dur);
   for (const t of ts) {
     const cv = r.image(Math.min(t, r.dur - 1e-3));
@@ -181,7 +188,7 @@ async function cmdSheet(file, a) {
   loadFonts();
   const root = await loadScene(file);
   const scale = num(a.scale, 0.25);
-  const r = new Renderer(root, { scale, fps: num(a.fps, 30), debug: !!a.grid, rig: !!a.rig, layers: !!a.layers });
+  const r = new Renderer(root, { scale, fps: num(a.fps, 30), debug: !!a.grid, rig: !!a.rig, layers: !!a.layers, arcos: !!a.arcos, silhueta: !!a.silhueta });
   const n = num(a.n, 12), cols = num(a.cols, Math.min(4, n));
   const from = num(a.from, 0), to = Math.min(num(a.to, r.dur), r.dur);
   const rows = Math.ceil(n / cols), gap = 4;
@@ -238,12 +245,14 @@ async function cmdBench(file, a) {
   console.log(`${r.W}x${r.H}: ${ms.toFixed(1)} ms/frame (1 thread) ≈ ${(1000 / ms).toFixed(1)} fps; com ${cpu} workers ≈ ${((1000 / ms) * cpu * 0.8).toFixed(0)} fps`);
 }
 
-const TEMPLATE = `// Cena nova — veja AGENTS.md (referência rápida) e docs/ANATOMIA.md (personagens). Sem texto na tela por padrão.
-import { scene, film, layer, G, blob, circle, ellipse, rect, taper, line, particles, rays, lin, rad, kf, osc, wig, pessoa } from 'bamoonimation';
+const TEMPLATE = `// Cena nova — veja AGENTS.md (referência rápida), docs/ANATOMIA.md (personagens) e docs/PRINCIPIOS.md
+// (os 12 princípios: o motor já aplica slow in/out, atuação nos rigs, vida, molas e sombras). Sem texto na tela.
+import { scene, film, layer, G, blob, circle, ellipse, rect, taper, line, particles, rays, sombra, lin, rad, kf, acao, quica, osc, wig, pessoa } from 'bamoonimation';
 
 // O estilo padrão já é o das referências (ilustrado: textura, papel, grão, luz quente, névoa, profundidade).
 // Escolha só a luz: 'dia' | 'entardecer' | 'amanhecer' | 'interior' | 'noite' | 'subaquatico'.
 const look = { luz: 'entardecer' };
+const bola = quica({ x0: 760, vx: 160, chao: 900, altura: 360, t0: 0.5, queda: 0.5 });
 
 const plano1 = scene({
   dur: 5,
@@ -255,7 +264,13 @@ const plano1 = scene({
     layer({ z: 3 }, [blob([[-300, 1300], [-300, 760], [500, 680], [1200, 780], [2200, 700], [2200, 1300]], { fill: '#8aa6a0' })]),
     layer({ z: 1 }, [
       blob([[-300, 1300], [-300, 900], [700, 860], [1500, 920], [2200, 880], [2200, 1300]], { fill: '#6f8f5a' }),
-      G({ x: 960, y: 760, rot: osc(0.5, 4) }, [circle(0, 0, 90, { fill: '#e2735a' })]),
+      // quica() = arcos + slow in/out da gravidade + squash & stretch automático (desenhe com a base em 0,0)
+      sombra(t => bola.x(t), 900, 160),
+      G({ ...bola }, [circle(0, -70, 70, { fill: '#e2735a' })]),
+      // um broto com mola: balança atrasado quando o vento (rot) muda — follow-through
+      G({ x: 1300, y: 880, rot: acao(kf([0, 0], [2, 0], [2.4, 8], [4, -4])), px: 0, py: 0 }, [
+        G({ mola: { freq: 1.8, amort: 0.25 }, px: 0, py: 0 }, [taper([[0, 0], [6, -80], [-4, -160]], [16, 10, 4], { fill: '#4f7d4a' }), circle(-4, -170, 24, { fill: '#f2b24a' })]),
+      ]),
     ]),
     layer({ z: 0.5 }, [blob([[-200, 1200], [-200, 980], [300, 1040], [500, 1200]], { fill: '#3d4a3a' })]),
   ],

@@ -228,10 +228,14 @@ const caustics = (y0, y1, seed) =>
 const surface = () =>
   G([
     blob(t => [[-800, -300], [3000, -300], [3000, 40], ...rep(12, i => [2900 - i * 300, 40 + 14 * Math.sin(i * 1.3 + t * 0.8)]), [-800, 40]], { fill: lin(90, '#e3fbff', '#a6e3ee'), shade: 0, hl: 0 }),
-    ...scatter(16, 5, r => taper(t => {
-      const x = r.range(-600, 2800) + 30 * Math.sin(t * 0.5 + r() * 9), y = r.range(60, 120);
-      return [[x, y], [x + 60, y - 6], [x + 130, y]];
-    }, [0, 4, 0], { fill: '#e9fdff', alpha: 0.6, shade: 0, hl: 0 })),
+    ...scatter(16, 5, r => {
+      // sorteia UMA vez (fora da função de t): sorteio dentro dela muda a cada quadro e pisca
+      const x0 = r.range(-600, 2800), ph = r() * 9, y = r.range(60, 120);
+      return taper(t => {
+        const x = x0 + 30 * Math.sin(t * 0.5 + ph);
+        return [[x, y], [x + 60, y - 6], [x + 130, y]];
+      }, [0, 4, 0], { fill: '#e9fdff', alpha: 0.6, shade: 0, hl: 0 });
+    }),
   ]);
 
 const snow = (seed, n = 18) =>
@@ -310,7 +314,7 @@ const shot2 = scene({
 
 // ---------------------------------------------------------------- plano 3: a caçada
 const TC = 2.4; // instante da mordida
-const fishPath = spline([0, [960, 560]], [1.15, [985, 552]], [1.45, [1080, 515], 'out'], [2.15, [1300, 490]], [TC, [1345, 505]], [3.5, [1650, 420]]);
+const fishPath = spline([0, [960, 560]], [1.15, [985, 552]], [1.27, [968, 557]], [1.45, [1080, 515], 'out'], [2.15, [1300, 490]], [TC, [1345, 505]], [3.5, [1650, 420]]);
 const snout = spline([0, [-300, 790]], [1.3, [420, 660]], [TC, [1450, 470]], [3.4, [2250, 350]], [6, [3800, 260]]);
 const shot3 = scene({
   dur: 6,
@@ -333,10 +337,10 @@ const shot3 = scene({
       fanCoral(620, 930, 0.85, 4, '#c0687f'), sponges(860, 990, 0.8),
       rock(1500, 950, 620, 230, C.rock2, 72, true), coralTree(1420, 830, 0.9, C.coral, 3), anemone(1700, 860, 0.9, 5), sponges(1260, 900, 0.7, '#f4c04d'),
       seaStar(1050, 1040, 0.9, 10),
-      G({ ...move(snout, { orient: true }), s: kf([0, 0.55], [1.3, 0.65], [TC, 0.9], [4, 1]) }, [
+      G({ ...move(snout, { orient: true }), s: kf([0, 0.55], [1.3, 0.65], [TC, 0.9], [4, 1]), squash: { k: 0.35, tam: 900 } }, [
         G({ x: -500 }, [shark({ swim: kf([0, 0.8], [1.3, 1.2], [TC, 1.7], [3.6, 1]), clock: t => 0.75 * t + 0.9 * smooth(1.2, 2.6, t), open: kf([0, 0], [1.75, 0], [2.25, 1, 'out'], [TC + 0.05, 0, 'in']) })]),
       ]),
-      G({ show: [0, TC + 0.02], ...move(fishPath), s: 0.9, rot: t => (t < 1.15 ? 7 * noise(t * 1.3, 2) : heading(fishPath, t)) }, [fish({ flap: 6 })]),
+      G({ show: [0, TC + 0.02], ...move(fishPath), s: 0.9, squash: 0.9, rot: t => lerp(7 * noise(t * 1.3, 2) + 9 * Math.sin(Math.PI * clamp((t - 1.12) / 0.2)), heading(fishPath, t), smooth(1.27, 1.36, t)) }, [fish({ flap: 6 })]),
       // impacto: bolhas + escamas brilhando
       particles({ seed: 4, burst: 46, t0: TC, at: [1350, 470], area: 40, dir: -90, spread: 360, speed: [80, 360], drag: 2.2, grav: [0, -60], life: [1.2, 2.6], size: [3, 12], turb: 20, shape: bubble }),
       particles({ seed: 5, burst: 16, t0: TC, at: [1350, 470], area: 20, spread: 360, speed: [60, 200], drag: 3, grav: [0, 30], life: [0.8, 1.6], size: [2, 4], color: ['#ffe58a', '#fff4c4'], spin: 400, glow: { r: 6, a: 0.6 } }),

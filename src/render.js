@@ -4,7 +4,7 @@
 
 import canvas from '@napi-rs/canvas';
 import { readFileSync } from 'node:fs';
-import { V, deepV, isAnim, KF, noise, hash, clamp, smooth, lerp } from './anim.js';
+import { V, deepV, isAnim, KF, noise, hash, clamp, smooth, lerp, RNG_MONITOR } from './anim.js';
 import { mix, rgba, css } from './color.js';
 import { blobPath, polyPath, curvePath, taperPath, ik2, widthFn } from './geom.js';
 import { flat } from './nodes.js';
@@ -41,6 +41,7 @@ export const ESTILOS = {
     paper: 0.16, // textura de papel global (multiply)
     vignette: 0.42,
     vignetteC: '#1f0f2a',
+    vignetteFoco: 0.4, // STAGING: o centro da vinheta puxa para os personagens do plano focal (0 = centro fixo)
     bloom: 0.26,
     haze: { c: 'auto', a: 0.45 }, // névoa atmosférica para camadas com z > 1 ('auto' = cor do horizonte do fundo)
     grade: { sat: 1.12, con: 1.08, bri: 1, lift: '#140a16', tint: '#ffb070', tintA: 0.1 },
@@ -130,11 +131,17 @@ export class Renderer {
    * @param root cena (scene) ou filme (film)
    * @param opts { scale, fps, debug }
    */
-  constructor(root, { scale = 1, fps = 30, debug = false, rig = false, layers = false } = {}) {
+  constructor(root, { scale = 1, fps = 30, debug = false, rig = false, layers = false, silhueta = false, arcos = false } = {}) {
     loadFonts();
     if (!root || (root.kind !== 'scene' && root.kind !== 'film'))
       throw new Error('bamoo: o módulo da cena deve exportar default scene({...}) ou film([...])');
-    this.root = root.kind === 'film' ? root : { kind: 'film', scenes: [root], trans: 'cut', d: 0 };
+    this.root = root.kind === 'film' ? root : { kind: 'film', scenes: [root], trans: 'cut', d: 0, exagero: root.exagero };
+    this.sil = silhueta; // teste da silhueta (staging): formas chapadas, plano focal em preto
+    this.debugArcs = arcos; // trilhas de movimento das extremidades dos rigs (arcos e espaçamento)
+    this.anc = []; // pilha de ancestrais do nó sendo desenhado (para avaliar o movimento dele em outros instantes)
+    this.rigCache = new Map();
+    this.subjects = [];
+    this.noDrift = false;
     const first = this.root.scenes[0];
     [this.DW, this.DH] = first.size ?? [1920, 1080];
     this.W = max(2, round((this.DW * scale) / 2) * 2);
@@ -174,9 +181,13 @@ export class Renderer {
     const x = c.getContext('2d');
     resetCtx(x);
     x.clearRect(0, 0, w, h);
+    // clip() só sai com restore(); sem este save, um clip feito por quem pegou o canvas
+    // (ex.: grupo com clip + alpha/blur) fica grudado e apaga desenhos nos próximos quadros.
+    x.save();
     return c;
   }
   release(c) {
+    c.getContext('2d').restore();
     this.pool[c.width + 'x' + c.height].push(c);
   }
   small(w, h, slot = '') {
@@ -213,6 +224,15 @@ export class Renderer {
   // ---------- frame ----------
   /** Renderiza o frame no tempo T (segundos do filme). Retorna o canvas principal. */
   frame(T, frameIndex = round(T * this.fps)) {
+    RNG_MONITOR.rendering++;
+    try {
+      return this.frameInner(T, frameIndex);
+    } finally {
+      RNG_MONITOR.rendering--;
+    }
+  }
+
+  frameInner(T, frameIndex) {
     const tl = this.timeline;
     const active = tl.filter(e => T >= e.start && T < e.start + e.sc.dur);
     if (!active.length) active.push(T < 0 ? tl[0] : tl[tl.length - 1]);
@@ -269,6 +289,7 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
     this.curLook = this.lookOf(cur.sc, t);
+    this.curFocus = this.focusOf(this.curLook);
     this.filmPost(ctx, this.curLook);
     return main;
   }
@@ -298,7 +319,10 @@ export class Renderer {
     this.curScene = entry.i;
     this.layerLegend = [];
     const look = this.lookOf(sc, t);
-    const env = { t, dur: sc.dur, W: this.DW, H: this.DH, fps: this.fps, scale: this.s };
+    // exagero (princípio 10): multiplica a atuação automática (antecipação, overshoot, squash, molas)
+    const ex = V(sc.exagero ?? this.root.exagero ?? 1, t);
+    const env = { t, dur: sc.dur, W: this.DW, H: this.DH, fps: this.fps, scale: this.s, exagero: ex };
+    this.subjects = [];
     const n = round(look.mblur || 0);
     if (n > 1) {
       const acc = this.acquire();
@@ -331,6 +355,13 @@ export class Renderer {
       cam.y += cam.shake * noise(t * f, 13);
       cam.rot += cam.shake * 0.04 * noise(t * f * 0.7, 19);
     }
+    // câmera viva (ação secundária): deriva lentíssima, como uma câmera na mão de alguém calmo. vida: 0 desliga
+    const vida = this.noDrift ? 0 : g('vida', 1);
+    if (vida) {
+      cam.x += 3.5 * vida * noise(t * 0.13, 101);
+      cam.y += 2.5 * vida * noise(t * 0.11, 103);
+      cam.rot += 0.07 * vida * noise(t * 0.09, 107);
+    }
     return cam;
   }
 
@@ -339,10 +370,12 @@ export class Renderer {
     resetCtx(ctx);
     const s = this.s;
     ctx.setTransform(s, 0, 0, s, 0, 0);
-    const bg = V(sc.bg, t, env) ?? look.ceu ?? ESTILOS.ilustrado.ceu;
+    const bg = this.sil ? '#f2efe8' : V(sc.bg, t, env) ?? look.ceu ?? ESTILOS.ilustrado.ceu;
     ctx.fillStyle = this.paint(ctx, bg, [0, 0, this.DW, this.DH]);
     ctx.fillRect(0, 0, this.DW, this.DH);
+    this.rigCache.clear();
     const cam = this.camera(sc, t, env, look);
+    this.curCam = cam;
     const tA = look.steps > 0 ? floor(t * look.steps + 1e-6) / look.steps : t;
     const envA = tA === t ? env : { ...env, t: tA };
     const base = {
@@ -370,7 +403,7 @@ export class Renderer {
     if (!L.fixed && z - cam.dolly < 0.06) return;
     const M = this.layerMatrix(L, z, cam);
     const blurD = L.blur !== undefined ? V(L.blur, t, env) : L.fixed ? 0 : cam.dof * abs(cam.focus / z - 1);
-    let blurPx = blurD * this.s * cam.zoom;
+    let blurPx = this.sil ? 0 : blurD * this.s * cam.zoom;
     if (blurPx < 1.5) blurPx = 0; // desfoque imperceptível: evita um canvas extra (economiza 2 passadas de tela cheia)
     let hazeA = 0, hazeC = look.haze?.c ?? '#fff';
     if (L.haze !== undefined) {
@@ -381,8 +414,13 @@ export class Renderer {
         hazeC = h.c ?? hazeC;
       }
     } else if (look.haze && z > 1 && !L.fixed) hazeA = (look.haze.a ?? 0.5) * (1 - 1 / z);
+    if (this.sil) hazeA = 0;
     const alpha = L.alpha === undefined ? 1 : V(L.alpha, t, env);
     if (alpha <= 0.002) return;
+    // plano focal (onde a ação acontece): usado pelo foco da vinheta, pelas sombras e pelo teste da silhueta
+    this.curLayerZ = L.fixed ? null : z;
+    this.curFocal = !L.fixed && abs(z - cam.focus) <= 0.35;
+    this.silCol = this.curFocal ? '#141414' : z > 1 ? `hsl(30, 6%, ${min(86, 52 + 9 * z)}%)` : '#5c5c5c';
     const off = blurPx > 0.4 || hazeA > 0.004 || alpha < 0.999 || L.blend || L.glow || this.debugLayers;
     // camadas desfocadas são desenhadas direto em meia/quarta resolução (o desfoque esconde a perda)
     const F = blurPx >= 2 && !L.glow ? (blurPx < 6 ? 2 : 4) : 1;
@@ -395,8 +433,11 @@ export class Renderer {
     if (lm) tctx.transform(...lm);
     const inh = this.inherit(base, L, t, env);
     this.curLayerM = tctx.getTransform();
+    this.curLayerF = F;
     const kids = typeof L.children === 'function' ? flat(L.children(t, env)) : L.children;
+    this.anc = [L];
     for (const c of kids) this.drawNode(tctx, c, inh, t, env);
+    this.anc = [];
     tctx.restore();
     if (!off) return;
     resetCtx(tctx);
@@ -505,8 +546,28 @@ export class Renderer {
     const alpha = n.alpha === undefined ? 1 : V(n.alpha, t, env);
     if (alpha <= 0.002) return;
     ctx.save();
+    this.anc.push(n);
     const m = localMat(n, t, env);
     if (m) ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    // follow-through / overlapping action: rotação secundária pela inércia do movimento dos ancestrais
+    if (n.mola) {
+      const a = this.molaAng(n, t, env);
+      if (a) {
+        const px = n.px === undefined ? 0 : V(n.px, t, env), py = n.py === undefined ? 0 : V(n.py, t, env);
+        ctx.translate(px, py);
+        ctx.rotate((a * PI) / 180);
+        ctx.translate(-px, -py);
+      }
+    }
+    // squash & stretch: estica na direção da velocidade, achata no impacto (volume constante)
+    if (n.squash) {
+      const q = this.squashMat(n, t, env);
+      if (q) {
+        ctx.translate(q.b[0], q.b[1]);
+        ctx.transform(q.T[0], q.T[1], q.T[2], q.T[3], 0, 0);
+        ctx.translate(-q.b[0], -q.b[1]);
+      }
+    }
     if (alpha < 1 && n.type !== 'group') ctx.globalAlpha *= alpha;
     switch (n.type) {
       case 'group':
@@ -533,7 +594,11 @@ export class Renderer {
       case 'text':
         this.drawText(ctx, n, inh, t, env);
         break;
+      case 'sombra':
+        if (!this.sil) this.drawSombra(ctx, n, inh, t, env);
+        break;
       case 'img': {
+        if (this.sil) break;
         const im = this.image(V(n.src, t, env));
         const w = n.w !== undefined ? V(n.w, t, env) : im.width;
         const h = n.h !== undefined ? V(n.h, t, env) : (im.height * w) / im.width;
@@ -545,7 +610,7 @@ export class Renderer {
         this.drawParticles(ctx, n, inh, t, env);
         break;
       case 'rays':
-        this.drawRays(ctx, n, inh, t, env);
+        if (!this.sil) this.drawRays(ctx, n, inh, t, env);
         break;
       case 'rig':
         this.drawRig(ctx, n, inh, t, env);
@@ -564,7 +629,165 @@ export class Renderer {
       default:
         throw new Error(`bamoo: tipo de nó desconhecido "${n.type}"`);
     }
+    this.anc.pop();
     ctx.restore();
+  }
+
+  // ---------- movimento no tempo (base de molas, squash, trilhas) ----------
+  /**
+   * Matriz (espaço da camada, SEM a câmera) do contexto de desenho atual no instante tau, reavaliando a
+   * transformação de cada ancestral (nós e ossos de rigs) nesse instante. É o que permite medir velocidade,
+   * aceleração e giro de qualquer nó sem estado — cada quadro continua independente (render paralelo).
+   */
+  worldAt(tau, env, upto = this.anc.length) {
+    let M = null;
+    for (let i = 0; i < upto; i++) {
+      const e = this.anc[i];
+      let m;
+      if (e.bone) {
+        const cur = this.rigAt(e.rig, tau, env).S.get(e.bone);
+        if (e.local) {
+          const r = (cur.abs * PI) / 180;
+          m = [cos(r), sin(r), -sin(r), cos(r), cur.x0, cur.y0];
+        } else m = bindMatrix(restPose(e.rig).get(e.bone), cur);
+      } else m = localMat(e, tau, env);
+      if (m) M = M ? mulMat(M, m) : m;
+    }
+    return M ?? [1, 0, 0, 1, 0, 0];
+  }
+
+  /** solveRig com cache por quadro (vários efeitos pedem o mesmo rig nos mesmos instantes). */
+  rigAt(n, tau, env) {
+    const key = n.id + '|' + tau;
+    let s = this.rigCache.get(key);
+    if (!s) {
+      s = solveRig(n, tau, env, { check: false });
+      if (this.rigCache.size > 4000) this.rigCache.clear();
+      this.rigCache.set(key, s);
+    }
+    return s;
+  }
+
+  /** Centro da geometria de um nó (coords locais), para molas e tamanho do squash. Cacheado. */
+  nodeBox(n, t, env) {
+    if (n._box !== undefined) return n._box;
+    let bb = null;
+    try {
+      if (n.type === 'rig') {
+        const S = restPose(n);
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const s of S.values()) {
+          x0 = min(x0, s.x0, s.x1); y0 = min(y0, s.y0, s.y1); x1 = max(x1, s.x0, s.x1); y1 = max(y1, s.y0, s.y1);
+        }
+        bb = [x0, y0, x1, y1];
+      } else {
+        const p = new Path2D();
+        if (n.type === 'group') this.collect(p, this.kids(n, t, env), [1, 0, 0, 1, 0, 0], t, env);
+        else if (['blob', 'poly', 'ellipse', 'rect', 'path', 'taper'].includes(n.type)) p.addPath(this.geom(n, t, env).path);
+        const b = p.getBounds();
+        if (b[2] > b[0]) bb = b;
+      }
+    } catch {
+      bb = null;
+    }
+    return (n._box = bb);
+  }
+
+  /**
+   * MOLA (follow-through / overlapping action): ângulo extra (graus) de um nó preso pelo pivô (px, py) que
+   * reage, como massa-mola amortecida, à aceleração do pivô e ao giro dos ancestrais. Orelhas, cabelo, rabo,
+   * antena, brinco, alça, planta no vaso que é carregado... n.mola: true | { freq, amort, ganho, max, ponta, pendulo }.
+   * pendulo (0..1): quanto a parte se alinha à gravidade quando o pai inclina (1 = pende sempre na vertical).
+   */
+  molaAng(n, t, env) {
+    const o = n.mola === true ? {} : V(n.mola, t, env);
+    if (!o) return 0;
+    const f = o.freq ?? 2, z = clamp(o.amort ?? 0.35, 0.05, 2), gain = (o.ganho ?? 1) * (env.exagero ?? 1), mx = o.max ?? 25;
+    if (!gain) return 0;
+    const w = 2 * PI * f, dt = 1 / 40;
+    const N = Math.ceil(min(1.6, 5 / (z * w)) / dt);
+    const piv = [n.px === undefined ? 0 : V(n.px, t, env), n.py === undefined ? 0 : V(n.py, t, env)];
+    let tip = o.ponta;
+    if (!tip) {
+      const bb = this.nodeBox(n, t, env);
+      tip = bb ? [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2] : [piv[0], piv[1] + 40];
+      if (hypot(tip[0] - piv[0], tip[1] - piv[1]) < 2) tip = [piv[0], piv[1] + 40];
+    }
+    const P = [], Q = [], TH = [];
+    let det = 1;
+    for (let k = 0; k <= N + 1; k++) {
+      const M = this.worldAt(t - k * dt, env);
+      const dk = M[0] * M[3] - M[1] * M[2];
+      if (k === 0) det = dk;
+      P.push([M[0] * piv[0] + M[2] * piv[1] + M[4], M[1] * piv[0] + M[3] * piv[1] + M[5]]);
+      Q.push([M[0] * tip[0] + M[2] * tip[1] + M[4], M[1] * tip[0] + M[3] * tip[1] + M[5]]);
+      // giro do referencial no mundo (também para referenciais espelhados por flip)
+      let th = dk < 0 ? Math.atan2(-M[1], -M[0]) : Math.atan2(M[1], M[0]);
+      if (k) while (th - TH[k - 1] > PI) th -= 2 * PI;
+      if (k) while (th - TH[k - 1] < -PI) th += 2 * PI;
+      TH.push(th);
+    }
+    // pendulo (0..1): a parte procura ficar pendurada pela gravidade quando o pai inclina (cabelo, brinco, lustre)
+    const pend = o.pendulo ?? 0;
+    const wd = z < 1 ? w * sqrt(1 - z * z) : 0;
+    let d = 0, dp = 0;
+    for (let k = 1; k <= N; k++) {
+      const ax = (P[k - 1][0] - 2 * P[k][0] + P[k + 1][0]) / (dt * dt), ay = (P[k - 1][1] - 2 * P[k][1] + P[k + 1][1]) / (dt * dt);
+      const th2 = (TH[k - 1] - 2 * TH[k] + TH[k + 1]) / (dt * dt);
+      const rx = Q[k][0] - P[k][0], ry = Q[k][1] - P[k][1], r2 = rx * rx + ry * ry || 1;
+      // aceleração angular de inércia: torque da força fictícia (−m·a) no braço r, e o giro do referencial
+      const u = (rx * -ay - ry * -ax) / r2 - th2;
+      const s = k * dt;
+      const h = z < 1 ? (Math.exp(-z * w * s) * sin(wd * s)) / wd : s * Math.exp(-w * s);
+      d += h * u * dt;
+      if (pend) dp -= h * pend * w * w * TH[k] * dt;
+    }
+    let deg = ((gain * d + dp) * 180) / PI;
+    deg = mx * Math.tanh(deg / mx);
+    return det < 0 ? -deg : deg;
+  }
+
+  /**
+   * SQUASH & STRETCH automático: mede velocidade e aceleração do ponto-base do nó (espaço da camada) e
+   * devolve uma deformação de área constante — estica ao longo da velocidade, achata na direção de
+   * impactos/freadas bruscas. n.squash: k | true | { k, base: [x, y], tam, janela }.
+   */
+  squashMat(n, t, env) {
+    const o = typeof n.squash === 'number' ? { k: n.squash } : n.squash === true ? {} : V(n.squash, t, env);
+    if (!o) return null;
+    const k = (o.k ?? 1) * (env.exagero ?? 1);
+    if (!k) return null;
+    const h = o.janela ?? 0.05;
+    const b = o.base ?? [n.px === undefined ? 0 : V(n.px, t, env), n.py === undefined ? 0 : V(n.py, t, env)];
+    const ap = M => [M[0] * b[0] + M[2] * b[1] + M[4], M[1] * b[0] + M[3] * b[1] + M[5]];
+    const M0 = this.worldAt(t, env), p0 = ap(M0), pm = ap(this.worldAt(t - h, env)), pp = ap(this.worldAt(t + h, env));
+    const vx = (pp[0] - pm[0]) / (2 * h), vy = (pp[1] - pm[1]) / (2 * h);
+    const ax = (pp[0] - 2 * p0[0] + pm[0]) / (h * h), ay = (pp[1] - 2 * p0[1] + pm[1]) / (h * h);
+    const sc = sqrt(abs(M0[0] * M0[3] - M0[1] * M0[2])) || 1;
+    let size = o.tam;
+    if (!size) {
+      const bb = this.nodeBox(n, t, env);
+      size = bb ? max(bb[2] - bb[0], bb[3] - bb[1]) : 100;
+    }
+    size = max(4, size * sc);
+    const v = hypot(vx, vy), a = hypot(ax, ay);
+    const ev = k * min(0.36, (0.0105 * v) / size);
+    const ea = k * min(0.36, 0.0011 * max(0, a / size - 60));
+    if (ev < 0.004 && ea < 0.004) return null;
+    // T = Sa · Sv no espaço da camada
+    const S = (ang, s) => {
+      const c = cos(ang), sn = sin(ang), i = 1 / s;
+      // R(ang)·diag(s, 1/s)·R(−ang)
+      return [c * c * s + sn * sn * i, c * sn * (s - i), c * sn * (s - i), sn * sn * s + c * c * i];
+    };
+    const mul2 = (A, B) => [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3], A[1] * B[2] + A[3] * B[3]];
+    let T = [1, 0, 0, 1];
+    if (ev >= 0.004) T = S(Math.atan2(vy, vx), 1 + ev);
+    if (ea >= 0.004) T = mul2(S(Math.atan2(ay, ax), 1 / (1 + ea)), T);
+    // para o espaço local: L⁻¹ · T · L (L = parte linear de M0)
+    const L = [M0[0], M0[1], M0[2], M0[3]], det = L[0] * L[3] - L[1] * L[2] || 1;
+    const Li = [L[3] / det, -L[1] / det, -L[2] / det, L[0] / det];
+    return { T: mul2(Li, mul2(T, L)), b };
   }
 
   kids(n, t, env) {
@@ -749,6 +972,7 @@ export class Renderer {
   }
 
   drawShape(ctx, n, g, inh, t, env, sizeHint) {
+    if (this.sil) return this.drawShapeSil(ctx, n, g, inh, t, env);
     const fill = this.st(n, 'fill', inh, t, env);
     const stroke = n.type === 'taper' ? (n.stroke !== undefined ? V(n.stroke, t, env) : null) : this.st(n, 'stroke', inh, t, env);
     const blur = n.blur === undefined || n.type === 'group' ? 0 : V(n.blur, t, env);
@@ -819,6 +1043,30 @@ export class Renderer {
       ctx.restore();
     }
     if (blend) ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Teste da silhueta (staging): cada forma chapada na cor do seu plano; efeitos de luz não aparecem. */
+  drawShapeSil(ctx, n, g, inh, t, env) {
+    const blend = n.type !== 'group' && n.blend ? V(n.blend, t, env) : null;
+    if (blend && blend !== 'source-over') return; // luzes, brilhos, sombras de multiply
+    const fill = this.st(n, 'fill', inh, t, env);
+    const stroke = n.type === 'taper' ? null : this.st(n, 'stroke', inh, t, env);
+    const clear = c => typeof c === 'string' && /^#([0-9a-f]{3}0|[0-9a-f]{6}00)$/i.test(c);
+    const rule = n.rule === 'evenodd' ? 'evenodd' : 'nonzero';
+    if (fill && !clear(fill)) {
+      // chão/paredes do plano focal (formas maiores que a tela) ficam cinza: o preto é só para os atores
+      const M = ctx.getTransform(), ds = sqrt(abs(M.a * M.d - M.b * M.c)) * (this.curLayerF ?? 1);
+      const big = this.curFocal && (g.bb[2] - g.bb[0]) * ds > this.W * 1.15;
+      ctx.fillStyle = big ? '#a8a49c' : this.silCol ?? '#141414';
+      ctx.fill(g.path, rule);
+    }
+    if (stroke && !clear(stroke)) {
+      ctx.lineWidth = this.st(n, 'lw', inh, t, env) ?? 2;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = this.silCol ?? '#141414';
+      ctx.stroke(g.path);
+    }
   }
 
   applyTex(ctx, g, spec, rule) {
@@ -941,7 +1189,8 @@ export class Renderer {
     ctx.lineWidth = n.lw !== undefined ? V(n.lw, t, env) : inh.lw ?? 3;
     ctx.lineCap = n.cap ?? 'round';
     ctx.lineJoin = 'round';
-    const col = n.stroke !== undefined ? V(n.stroke, t, env) : inh.stroke ?? '#1d1a2b';
+    if (this.sil && n.blend) return;
+    const col = this.sil ? this.silCol : n.stroke !== undefined ? V(n.stroke, t, env) : inh.stroke ?? '#1d1a2b';
     const bb = p.getBounds();
     ctx.strokeStyle = this.paint(ctx, col, bb);
     if (n.dash) {
@@ -1013,7 +1262,7 @@ export class Renderer {
     const y0 = -((lines.length - 1) * lh) / 2;
     const M = ctx.getTransform();
     const ds = sqrt(abs(M.a * M.d - M.b * M.c));
-    const fill = n.fill !== undefined ? V(n.fill, t, env) : inh.fill ?? '#1d1a2b';
+    const fill = this.sil ? this.silCol : n.fill !== undefined ? V(n.fill, t, env) : inh.fill ?? '#1d1a2b';
     if (n.drop) {
       const d = V(n.drop, t, env);
       ctx.shadowColor = d.c ?? 'rgba(0,0,0,0.5)';
@@ -1127,8 +1376,22 @@ export class Renderer {
   }
 
   drawParticles(ctx, n, inh, t, env) {
+    if (this.sil && (n.blend || n.glow)) return;
     const list = this.evalParticles(n, t, env);
     if (!list.length) return;
+    if (this.sil) {
+      // silhueta: partículas viram manchas claras do plano (não competem com os personagens)
+      ctx.fillStyle = this.silCol;
+      const a0 = ctx.globalAlpha;
+      for (const q of list) {
+        ctx.globalAlpha = a0 * 0.35 * q.alpha;
+        ctx.beginPath();
+        ctx.ellipse(q.x, q.y, max(0.01, q.size * q.sx), max(0.01, q.size * q.sy), q.ang, 0, TAU);
+        ctx.fill();
+      }
+      ctx.globalAlpha = a0;
+      return;
+    }
     if (n.merge) {
       const p = new Path2D();
       for (const q of list) {
@@ -1250,7 +1513,7 @@ export class Renderer {
     const ctx = cv.getContext('2d');
     resetCtx(ctx);
     const W = this.W, H = this.H;
-    if (look.bloom > 0) {
+    if (look.bloom > 0 && !this.sil) {
       const w = max(2, round(W / 4)), h = max(2, round(H / 4));
       const sm = this.small(w, h, 'bloom1');
       const sx = sm.getContext('2d');
@@ -1268,7 +1531,7 @@ export class Renderer {
       ctx.drawImage(sm2, 0, 0, w, h, 0, 0, W, H);
       resetCtx(ctx);
     }
-    if (look.paper > 0) {
+    if (look.paper > 0 && !this.sil) {
       ctx.globalCompositeOperation = 'multiply';
       ctx.globalAlpha = look.paper;
       const p = this.pattern(ctx, 'paper');
@@ -1331,9 +1594,51 @@ export class Renderer {
     return buf;
   }
 
+  /** Assinatura do quadro desenhado (32×18 de luminância, antes do grão) — para verificar quadros. */
+  signature() {
+    const a = this.small(128, 72, 'sigA');
+    a.getContext('2d').drawImage(this.main, 0, 0, 128, 72);
+    const b = this.small(32, 18, 'sigB');
+    b.getContext('2d').drawImage(a, 0, 0, 32, 18);
+    const d = b.getContext('2d').getImageData(0, 0, 32, 18).data, s = new Float32Array(32 * 18);
+    for (let i = 0; i < s.length; i++) s[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3;
+    return s;
+  }
+
+  /**
+   * pixels() À PROVA DE FALHAS para vídeo: raramente (≈1 quadro em 200, de forma aleatória) o filtro de desfoque do
+   * Skia devolve uma camada vazia e uma camada inteira some por um quadro (flicker). Como o motor é determinístico,
+   * todo quadro que muda muito em relação ao anterior é desenhado de novo; se as duas versões divergem, desenha uma
+   * terceira e fica a maioria. Custo: só os quadros de mudança brusca (cortes, ação rápida) são repetidos.
+   */
+  pixelsVerificado(T, frameIndex = round(T * this.fps)) {
+    const dif = (a, b) => {
+      let m = 0;
+      for (let i = 0; i < a.length; i++) m = max(m, abs(a[i] - b[i]));
+      return m;
+    };
+    let buf = this.pixels(T, frameIndex), s = this.signature();
+    const prev = this._sigPrev;
+    if (!prev || dif(s, prev) > 10) {
+      const buf2 = this.pixels(T, frameIndex), s2 = this.signature();
+      if (dif(s, s2) > 1.5) {
+        this.falhas = (this.falhas ?? 0) + 1;
+        const buf3 = this.pixels(T, frameIndex), s3 = this.signature();
+        if (dif(s2, s3) <= 1.5) [buf, s] = [buf3, s3];
+        else if (dif(s, s3) > 1.5 && prev) {
+          // as três divergem: fica a mais coerente com o quadro anterior
+          const c = [[buf, s], [buf2, s2], [buf3, s3]].sort((x, y) => dif(x[1], prev) - dif(y[1], prev))[0];
+          [buf, s] = c;
+        }
+      }
+    }
+    this._sigPrev = s;
+    return buf;
+  }
+
   /** Frame final como canvas (para PNG / folhas de contato). */
-  image(T, frameIndex = round(T * this.fps)) {
-    const buf = this.pixels(T, frameIndex);
+  image(T, frameIndex = round(T * this.fps), verificar = false) {
+    const buf = verificar ? this.pixelsVerificado(T, frameIndex) : this.pixels(T, frameIndex);
     if (!this.out) this.out = createCanvas(this.W, this.H);
     const ctx = this.out.getContext('2d');
     resetCtx(ctx);
@@ -1343,21 +1648,48 @@ export class Renderer {
     return this.out;
   }
 
-  vignetteMap(look) {
-    const key = `${look.vignette}|${look.vignetteR ?? 0.3}`;
+  /**
+   * STAGING: centro de atenção do quadro = centro da tela puxado para os personagens (rigs) do plano focal,
+   * ponderados pelo tamanho. A vinheta se centra ali — o olho vai para quem está atuando.
+   */
+  focusOf(look) {
+    const k = look?.vignetteFoco ?? 0;
+    const cx = this.W / 2, cy = this.H / 2;
+    if (!k || !this.subjects.length) return [cx, cy];
+    let sx = 0, sy = 0, sw = 0;
+    for (const [x0, y0, x1, y1] of this.subjects) {
+      // só a parte dentro do quadro conta (quem está saindo de cena não puxa a atenção)
+      const a = max(0, min(x1, this.W) - max(x0, 0)) * max(0, min(y1, this.H) - max(y0, 0));
+      if (a <= 0) continue;
+      const w = sqrt(a);
+      sx += w * (max(x0, 0) + min(x1, this.W)) / 2;
+      // o rosto/peito importa mais que os pés: mira no terço de cima da caixa
+      sy += w * (max(y0, 0) + (min(y1, this.H) - max(y0, 0)) * 0.35);
+      sw += w;
+    }
+    if (!sw) return [cx, cy];
+    const dx = clamp((sx / sw - cx) * k, -0.2 * this.W, 0.2 * this.W), dy = clamp((sy / sw - cy) * k, -0.2 * this.H, 0.2 * this.H);
+    return [cx + dx, cy + dy];
+  }
+
+  /** Mapa da vinheta em 1/4 da resolução (suave: blocos de 4 px são invisíveis), centrado no foco. */
+  vignetteMap(look, focus) {
+    const fx = focus ? round(focus[0] / 8) * 8 : this.W / 2, fy = focus ? round(focus[1] / 8) * 8 : this.H / 2;
+    const key = `${look.vignette}|${look.vignetteR ?? 0.3}|${fx}|${fy}`;
     if (this._vigKey === key) return this._vig;
-    const W = this.W, H = this.H, m = new Float32Array(W * H);
-    const r0 = H * (look.vignetteR ?? 0.3), r1 = hypot(W, H) * 0.56, cx = W / 2, cy = H / 2;
-    for (let y = 0; y < H; y++) {
-      const dy = y - cy;
-      for (let x = 0; x < W; x++) {
-        const d = sqrt((x - cx) * (x - cx) + dy * dy);
-        const u = clamp((d - r0) / (r1 - r0));
-        m[y * W + x] = u * u * (3 - 2 * u) * look.vignette;
+    const W = this.W, H = this.H, W4 = (W + 3) >> 2, H4 = (H + 3) >> 2, m = new Float32Array(W4 * H4);
+    const r0 = H * (look.vignetteR ?? 0.3), r1 = hypot(W, H) * 0.56;
+    for (let y = 0; y < H4; y++) {
+      const dy = y * 4 + 2 - fy;
+      for (let x = 0; x < W4; x++) {
+        const dx = x * 4 + 2 - fx;
+        const u = clamp((sqrt(dx * dx + dy * dy) - r0) / (r1 - r0));
+        m[y * W4 + x] = u * u * (3 - 2 * u) * look.vignette;
       }
     }
     this._vigKey = key;
     this._vig = m;
+    this._vigW4 = W4;
     return m;
   }
 
@@ -1377,11 +1709,12 @@ export class Renderer {
   }
 
   postPixels(buf, look, frameIndex) {
-    if (!look) return;
+    if (!look || this.sil) return;
     const W = this.W, H = this.H;
     const gr = look.grade || {};
     const sat = gr.sat ?? 1, con = gr.con ?? 1, bri = gr.bri ?? 1;
-    const vig = look.vignette > 0 ? this.vignetteMap(look) : null;
+    const vig = look.vignette > 0 ? this.vignetteMap(look, this.curFocus) : null;
+    const W4 = this._vigW4;
     const grain = look.grain > 0 ? look.grain : 0;
     if (sat === 1 && con === 1 && bri === 1 && !gr.lift && !gr.tint && !vig && !grain) return;
     // LUT 1: brilho + contraste (igual para todos os canais)
@@ -1413,7 +1746,7 @@ export class Renderer {
     const gk = grain * 255 * 0.32;
     const doSat = sat !== 1;
     for (let y = 0; y < H; y++) {
-      const row = y * W;
+      const row = y * W, vrow = (y >> 2) * W4;
       const trow = (((y >> gsh) + oy) & 255) << 8;
       for (let x = 0; x < W; x++) {
         const i = (row + x) << 2;
@@ -1428,7 +1761,7 @@ export class Renderer {
         g = G2[g < 0 ? 0 : g > 255 ? 255 : g | 0];
         b = B2[b < 0 ? 0 : b > 255 ? 255 : b | 0];
         if (vig) {
-          const w = vig[row + x];
+          const w = vig[vrow + (x >> 2)];
           r *= 1 - w * vr;
           g *= 1 - w * vg;
           b *= 1 - w * vb;
@@ -1449,14 +1782,32 @@ export class Renderer {
 
   // ---------- esqueletos ----------
   drawRig(ctx, n, inh, t, env) {
-    const sol = solveRig(n, t, env);
+    const check = !!(this.probe || this.debugRig);
+    const sol = solveRig(n, t, env, { check });
+    this.rigCache.set(n.id + '|' + t, sol);
     const { S } = sol;
+    // STAGING: caixa do personagem na tela (o foco da vinheta puxa para os do plano focal)
+    let bb = null;
+    if (this.curFocal || this.probe) {
+      const Mt = ctx.getTransform(), F = this.curLayerF ?? 1;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const s of S.values()) {
+        for (const [x, y] of [[s.x0, s.y0], [s.x1, s.y1]]) {
+          const X = (Mt.a * x + Mt.c * y + Mt.e) * F, Y = (Mt.b * x + Mt.d * y + Mt.f) * F;
+          x0 = min(x0, X); x1 = max(x1, X); y0 = min(y0, Y); y1 = max(y1, Y);
+        }
+      }
+      if (x1 > x0) bb = [x0, y0, x1, y1];
+      if (bb && this.curFocal) this.subjects.push(bb);
+    }
     if (this.probe) {
       const M = this.curLayerM ? this.curLayerM.inverse().multiply(ctx.getTransform()) : ctx.getTransform();
-      this.probe.rigs.push({ scene: this.curScene, rig: n, name: n.name ?? `rig#${n.id}`, t, S, issues: sol.issues, M, ground: n.ground === undefined ? undefined : V(n.ground, t, env) });
+      this.probe.rigs.push({ scene: this.curScene, rig: n, name: n.name ?? `rig#${n.id}`, t, S, issues: sol.issues, M, ground: n.ground === undefined ? undefined : V(n.ground, t, env), focal: this.curFocal, bb });
     }
     const rest = restPose(n);
     const inh2 = this.inherit(inh, n, t, env);
+    // SOLID DRAWING: sombra de contato sob pés/patas que tocam o chão (rig com `ground`; sombra: false desliga)
+    if (n.ground !== undefined && n.sombra !== false && !this.sil) this.contactShadows(ctx, n, S, inh2, t, env);
     if (!n._skin) {
       const RANK = { far: 0, mid: 1, near: 2 };
       const sideOf = nm => (n._bones.find(b => b.name === nm)?.side ?? 'mid');
@@ -1482,7 +1833,9 @@ export class Renderer {
           ctx.translate(cur.x0, cur.y0);
           ctx.rotate((cur.abs * PI) / 180);
         } else ctx.transform(...bindMatrix(rest.get(it.bone), cur));
+        this.anc.push({ bone: it.bone, rig: n, local: !!it.local });
         this.drawNode(ctx, it.node, inh2, t, env);
+        this.anc.pop();
       } else if (it.kind === 'limb') {
         const w = typeof it.w === 'function' ? it.w : deepV(it.w, t, env);
         const p = limbPath(chainPoints(S, it.limb), w, { joint: it.joint ?? 0.7, caps: it.caps ?? 'round' });
@@ -1496,6 +1849,112 @@ export class Renderer {
       ctx.restore();
     }
     if (this.debugRig) this.drawSkeleton(ctx, sol);
+    if (this.debugArcs) this.drawArcs(ctx, n, t, env);
+  }
+
+  /** Sombras de contato (multiply, desfocadas) sob os ossos de contato, que somem quando o pé sobe. */
+  contactShadows(ctx, n, S, inh, t, env) {
+    const g = V(n.ground, t, env);
+    if (g === undefined || g === null) return;
+    const contacts = n._bones.filter(b => b.contact);
+    if (!contacts.length || !this.curLayerM) return;
+    const so = typeof n.sombra === 'object' ? n.sombra : {};
+    const R = this.curLayerM.inverse().multiply(ctx.getTransform()); // rig → camada
+    const tr = (x, y) => [R.a * x + R.c * y + R.e, R.b * x + R.d * y + R.f];
+    const list = [];
+    for (const b of contacts) {
+      const s = S.get(b.name), sole = b.sole ?? 0;
+      const nx = -sin((s.abs * PI) / 180) * sole, ny = cos((s.abs * PI) / 180) * sole;
+      const a = tr(s.x0 + nx, s.y0 + ny), c = tr(s.x1 + nx, s.y1 + ny);
+      const L = max(6, hypot(c[0] - a[0], c[1] - a[1]));
+      const hgt = max(0, g - max(a[1], c[1]));
+      const fade = 1 - smooth(0, max(25, 1.3 * L), hgt);
+      if (fade > 0.02) list.push({ x0: min(a[0], c[0]), x1: max(a[0], c[0]), L, hgt, fade });
+    }
+    if (!list.length) return;
+    const Lm = this.curLayerM, ds = sqrt(abs(Lm.a * Lm.d - Lm.b * Lm.c));
+    ctx.save();
+    ctx.setTransform(Lm);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = so.c ?? inh.shadow ?? '#43306a';
+    const base = ctx.globalAlpha, A = so.a ?? 0.5;
+    const blob = (cx, rx, ry, al) => {
+      const bl = max(1.5, ry * 0.9);
+      ctx.save();
+      clipBox(ctx, [cx - rx, g - ry, cx + rx, g + ry], bl * 3 + 2);
+      ctx.filter = `blur(${bl * ds}px)`;
+      ctx.globalAlpha = base * al;
+      ctx.beginPath();
+      ctx.ellipse(cx, g, rx, ry, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    };
+    // sombra ambiente sob todo o apoio + uma mais escura e justa sob cada pé
+    const near = list.filter(p => p.fade > 0.3);
+    if (near.length > 1) {
+      const x0 = min(...near.map(p => p.x0)), x1 = max(...near.map(p => p.x1)), Lm2 = max(...near.map(p => p.L));
+      blob((x0 + x1) / 2, (x1 - x0) / 2 + 0.35 * Lm2, max(4, 0.16 * Lm2), A * 0.45);
+    }
+    for (const p of list) {
+      const grow = 1 + p.hgt / (1.3 * p.L);
+      blob((p.x0 + p.x1) / 2, ((p.x1 - p.x0) / 2 + 0.15 * p.L) * grow, max(3, 0.11 * p.L) * grow, A * p.fade);
+    }
+    ctx.restore();
+  }
+
+  /** Sombra de contato avulsa: sombra(x, y, largura, { a, h }) — assenta objetos no chão. */
+  drawSombra(ctx, n, inh, t, env) {
+    const x = V(n.cx, t, env), y = V(n.cy, t, env), w = V(n.w, t, env);
+    const rx = w / 2, ry = n.h === undefined ? max(3, w * 0.09) : V(n.h, t, env);
+    const M = ctx.getTransform(), ds = sqrt(abs(M.a * M.d - M.b * M.c));
+    const bl = max(1.5, ry * 0.9);
+    ctx.save();
+    clipBox(ctx, [x - rx, y - ry, x + rx, y + ry], bl * 3 + 2);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha *= n.a === undefined ? 0.45 : V(n.a, t, env);
+    ctx.fillStyle = n.c === undefined ? inh.shadow ?? '#43306a' : V(n.c, t, env);
+    ctx.filter = `blur(${bl * ds}px)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Depuração (--arcos): trilhas das extremidades do rig em ±0.6 s — mostra arcos e espaçamento (slow in/out). */
+  drawArcs(ctx, n, t, env) {
+    const bones = n._bones;
+    const leaf = bones.filter(b => b.len > 0 && !bones.some(c => c.p === b.name));
+    const sel = [...new Set([...leaf, ...bones.filter(b => /cabeca/.test(b.name))])];
+    const Lm = this.curLayerM;
+    if (!Lm) return;
+    const ds = sqrt(abs(Lm.a * Lm.d - Lm.b * Lm.c)) || 1;
+    const NS = 24, span = 0.6, tr = [];
+    for (let i = 0; i <= NS; i++) {
+      const tau = t - span + (2 * span * i) / NS;
+      const M = this.worldAt(tau, env), S = this.rigAt(n, tau, env).S;
+      tr.push(sel.map(b => {
+        const s = S.get(b.name);
+        return [M[0] * s.x1 + M[2] * s.y1 + M[4], M[1] * s.x1 + M[3] * s.y1 + M[5]];
+      }));
+    }
+    ctx.save();
+    resetCtx(ctx);
+    ctx.setTransform(Lm);
+    sel.forEach((b, j) => {
+      ctx.strokeStyle = '#ffffff88';
+      ctx.lineWidth = 1.5 / ds;
+      ctx.beginPath();
+      tr.forEach((pts, i) => (i ? ctx.lineTo(pts[j][0], pts[j][1]) : ctx.moveTo(pts[j][0], pts[j][1])));
+      ctx.stroke();
+      tr.forEach((pts, i) => {
+        const u = i / NS, cur = i === NS / 2;
+        ctx.fillStyle = cur ? '#ffffff' : u < 0.5 ? `hsl(200, 90%, ${45 + 30 * u}%)` : `hsl(28, 95%, ${70 - 30 * (u - 0.5)}%)`;
+        ctx.beginPath();
+        ctx.arc(pts[j][0], pts[j][1], (cur ? 5 : 3) / ds, 0, TAU);
+        ctx.fill();
+      });
+    });
+    ctx.restore();
   }
 
   drawSkeleton(ctx, sol) {

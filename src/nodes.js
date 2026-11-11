@@ -77,6 +77,12 @@ export const rig = (o = {}) => {
   if (!o.bones) throw new Error('bamoo: rig({...}) precisa de bones (use skeleton("humano"|"quadrupede"|"ave"|"peixe", {...}))');
   return mk('rig', { ...o, skin: o.skin ?? [] });
 };
+/**
+ * Sombra de contato (solid drawing): elipse suave e desfocada, em multiply, na cor de sombra da luz.
+ * Assenta móveis, objetos e personagens sem rig no chão: sombra(x, chao, largura, { a: 0.45, h }).
+ * (Rigs com `ground` já ganham sombra automática sob os pés.)
+ */
+export const sombra = (cx, cy, w, p = {}) => mk('sombra', { cx, cy, w, ...p });
 /** Escape: desenho livre com a API do canvas. fn(ctx, t, env). */
 export const custom = (fn, p = {}) => mk('custom', { fn, ...p });
 /** Nó dinâmico: fn(t, env) => nó | [nós]. */

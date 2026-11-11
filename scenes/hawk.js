@@ -3,7 +3,7 @@
 // Gavião e coelho são rigs anatômicos: skeleton('ave') e skeleton('quadrupede', { variante: 'coelho' }).
 import {
   scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, lin, rad, rig, skeleton, restPose, ave, ASA, bater,
-  kf, osc, rng, scatter, rep, body, spline, move, heading, smooth, clamp, lerp, lerpAny, ease, V, noise, decay, between, darken, mix,
+  kf, acao, osc, rng, scatter, rep, body, spline, move, heading, smooth, clamp, lerp, lerpAny, ease, V, noise, decay, between, darken, mix,
 } from 'bamoonimation';
 
 const C = {
@@ -116,7 +116,8 @@ function coelho(o) {
   const ear = (side, dark) => ({
     bone: 'cabeca',
     side,
-    node: G({ x: 128, y: -96, rot: t => lerp(64, -4, clamp(V(o.orelhas, t) ?? 0.4)) + 6 * noise(t * 3, side === 'far' ? 4 : 5) + (side === 'far' ? 10 : 0), px: 0, py: 0 }, [
+    node: G({ x: 128, y: -96, rot: t => lerp(64, -4, clamp(V(o.orelhas, t) ?? 0.4)) + 6 * noise(t * 3, side === 'far' ? 4 : 5) + (side === 'far' ? 10 : 0), px: 0, py: 0,
+      mola: { freq: 2.1, amort: 0.26, ganho: 1.1, max: 32 } }, [
       taper([[0, 0], [-10, -48], [-4, -100]], [20, 26, 7], { fill: dark ? C.rabD : C.rab, shade: 0.4, hl: 0.4 }),
       !dark && taper([[-2, -8], [-9, -48], [-5, -88]], [8, 13, 3], { fill: C.pink, shade: 0, hl: 0, alpha: 0.85 }),
     ]),
@@ -138,7 +139,7 @@ function coelho(o) {
       { bone: 'metaF', node: blob([[-18, 34], [0, 32], [50, 34], [68, 37], [70, 44], [-16, 45]], { fill: C.rabD, shade: 0.3 }) },
       // corpo e barriga (presos à coluna), cauda
       { bone: 'cauda1', node: circle(-22, -6, 13, { fill: '#fbf6ee', shade: 0.35, hl: 0.3 }) },
-      { bone: 'coluna', node: G([
+      { bone: 'coluna', node: G({ squash: { k: 0.45, base: [40, 0], tam: 170 } }, [
         blob([[-40, 8], [-36, -24], [-6, -52], [44, -66], [92, -60], [118, -44], [126, -14], [116, 14], [80, 22], [36, 26], [-8, 30], [-34, 24]], { fill: lin(90, C.rab, C.rabD), shade: 0.45, hl: 0.45, tex: { k: 'brush', a: 0.22, s: 0.5 } }),
         blob([[60, 18], [96, 14], [118, 0], [124, -18], [110, -6], [80, 6]], { fill: C.rabL, shade: 0.25, hl: 0 }),
       ]) },
@@ -241,7 +242,7 @@ const shot2 = scene({
     layer({ z: 2.5 }, [G({ y: t => 2200 - 1700 * smooth(3.2, 4.6, t) }, [hill(0, 60, C.hill, 9), rect(-1000, 0, 4400, 1600, { fill: lin(90, C.field, C.fieldD), shade: 0, hl: 0 }), tree(400, 10, 1.2, 7), tree(1500, 20, 1, 8)])]),
     layer({ z: 1 }, [
       hawk({
-        name: 'gavião mergulhando', s: 1.25, x: 860, y: t => 560 + 20 * Math.sin(t * 2), rot: kf([0, -4], [DIVE, 0], [DIVE + 0.8, 58, 'inOut']),
+        name: 'gavião mergulhando', s: 1.25, x: 860, y: t => 560 + 20 * Math.sin(t * 2), rot: acao(kf([0, -4], [DIVE, 0], [DIVE + 0.8, 58]), { antecipa: 0.16, passa: 0.05 }),
         asa: t => (t < DIVE ? bater(t, 1.6) : lerpAny(bater(DIVE, 1.6), ASA.dobrada, smooth(DIVE, DIVE + 0.7, t))),
         cabeca: kf([DIVE, 0], [DIVE + 0.8, -30]), cauda: kf([DIVE, 0.6], [DIVE + 0.7, 0]),
       }),
@@ -252,10 +253,10 @@ const shot2 = scene({
 
 // ------------------------------------------------------------------ plano 3: o ataque
 const TC = 2.42, HOLE = 1390, SH = 0.95, SR = 1.15;
-const rabX = kf([1.0, 900], [TC - 0.14, HOLE - 50, 'linear']);
+const rabX = kf([1.0, 900], [1.35, 969.7, 'in2'], [TC - 0.14, HOLE - 50, 'linear']); // acelera e entra na toca embalado
 // gavião: quadril do pássaro. No golpe, as garras (≈ 140,150 locais) chegam na toca.
 const STAND_Y = GROUND + 18 - 165 * SH;
-const hawkRot = t => (t < 1.9 ? Math.max(-10, Math.min(50, heading(hawkP, t))) : t < TC ? lerp(30, -10, smooth(1.9, TC, t)) : t < 4.45 ? -6 - 26 * smooth(2.7, 3.1, t) * (1 - smooth(4.2, 4.45, t)) + 2 * Math.sin(t * 2) : -22);
+const hawkRot = t => (t < 1.9 ? Math.max(-10, Math.min(50, heading(hawkP, t))) : t < TC ? lerp(30, -10, smooth(1.9, TC, t)) : t < 4.45 ? -6 - 26 * smooth(2.7, 3.1, t) * (1 - smooth(4.2, 4.45, t)) + 2 * Math.sin(t * 2) : lerp(-6 + 2 * Math.sin(t * 2), -22, smooth(4.45, 4.8, t)));
 // ponto do mundo -> coordenadas do rig (desfaz posição, escala e rotação do corpo)
 const toLocal = (t, [wx, wy]) => {
   const [hx, hy] = hawkP(t), r = (-hawkRot(t) * Math.PI) / 180, dx = (wx - hx) / SH, dy = (wy - hy) / SH;
@@ -270,7 +271,7 @@ const hawkFoot = (t, back) => {
   if (t < 4.45) return lerpAny([125 - back, 115], ground, smooth(2.45, 2.75, t));
   return lerpAny(ground, TUCK, smooth(4.45, 4.75, t));
 };
-const hawkP = spline([1.2, [-420, -260]], [1.95, [520, 380]], [TC, [HOLE - 140 * SH, GROUND + 14 - 134 * SH]], [2.75, [HOLE - 40, STAND_Y]], [4.45, [HOLE - 36, STAND_Y]], [5.2, [1700, 460]], [6.4, [2500, -120]]);
+const hawkP = spline([1.2, [-420, -260]], [1.95, [520, 380]], [TC, [HOLE - 140 * SH, GROUND + 14 - 134 * SH]], [2.75, [HOLE - 40, STAND_Y]], [4.15, [HOLE - 36, STAND_Y]], [4.42, [HOLE - 38, STAND_Y + 10]], [5.2, [1700, 460]], [6.4, [2500, -120]]);
 const shot3 = scene({
   dur: 7.6,
   bg: sky,
@@ -309,7 +310,7 @@ const shot3 = scene({
       hawk({
         name: 'gavião atacando', s: SH, ...move(hawkP), ground: t => (between(t, 2.75, 4.45) ? GROUND + 18 : undefined),
         rot: hawkRot,
-        asa: t => (t < 1.85 ? ASA.dobrada : t < 2.05 ? lerpAny(ASA.dobrada, ASA.freio, smooth(1.85, 2.05, t)) : t < 2.9 ? lerpAny(ASA.freio, ASA.alta, 0.3 + 0.3 * Math.sin(t * 14)) : t < 4.4 ? lerpAny(ASA.freio, ASA.dobrada, smooth(2.9, 3.3, t)) : bater(t, 3)),
+        asa: t => (t < 1.85 ? ASA.dobrada : t < 2.05 ? lerpAny(ASA.dobrada, ASA.freio, smooth(1.85, 2.05, t)) : t < 2.9 ? lerpAny(ASA.freio, ASA.alta, 0.3 + 0.3 * Math.sin(t * 14)) : t < 4.2 ? lerpAny(ASA.freio, ASA.dobrada, smooth(2.9, 3.3, t)) : t < 4.5 ? lerpAny(ASA.dobrada, ASA.alta, smooth(4.2, 4.5, t)) : bater(t - 4.5, 3)),
         cauda: t => (between(t, 1.9, 2.9) ? 1 : 0.2), caudaAng: t => (between(t, 1.9, 2.6) ? 18 : 0),
         pe: t => hawkFoot(t, 0),
         peF: t => hawkFoot(t, 14),

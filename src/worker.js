@@ -17,7 +17,7 @@ const r = new Renderer(root, { scale, fps });
 
 if (codec === 'png') {
   for (let f = a0; f < a1; f++) {
-    const cv = r.image(f / fps, f);
+    const cv = r.image(f / fps, f, true);
     writeFileSync(path.join(seg, `frame_${String(f).padStart(6, '0')}.png`), cv.toBuffer('image/png'));
     post({ frame: f });
   }
@@ -38,7 +38,7 @@ if (codec === 'png') {
   ff.stderr.on('data', d => (err += d));
   const closed = once(ff, 'close');
   for (let f = a0; f < a1; f++) {
-    const buf = r.pixels(f / fps, f);
+    const buf = r.pixelsVerificado(f / fps, f);
     if (!ff.stdin.write(buf)) await once(ff.stdin, 'drain');
     post({ frame: f });
   }
@@ -46,5 +46,5 @@ if (codec === 'png') {
   const [code] = await closed;
   if (code !== 0) throw new Error('ffmpeg falhou: ' + err);
 }
-post({ done: true });
+post({ done: true, falhas: r.falhas ?? 0 });
 if (!parentPort) process.disconnect?.();

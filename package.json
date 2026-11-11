@@ -11,6 +11,7 @@
     "bamoo": "bin/bamoo.js"
   },
   "scripts": {
+    "test": "node --test test/*.test.js",
     "bench": "node bin/bamoo.js bench",
     "render:all": "node bin/bamoo.js render scenes/shark.js && node bin/bamoo.js render scenes/cafe.js && node bin/bamoo.js render scenes/rocket.js && node bin/bamoo.js render scenes/hawk.js"
   },

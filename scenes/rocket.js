@@ -2,7 +2,7 @@
 // 3 planos: contagem regressiva na plataforma -> ignição e decolagem -> subida até o espaço.
 import {
   scene, film, layer, G, blob, ellipse, circle, rect, taper, line, particles, rays, dyn, lin, rad,
-  kf, osc, rng, scatter, rep, noise, smooth, clamp, lerp, V, decay, darken,
+  kf, acao, osc, rng, scatter, rep, noise, smooth, clamp, lerp, V, decay, darken,
 } from 'bamoonimation';
 
 const C = {
@@ -107,7 +107,10 @@ const sea = y =>
 
 const sun = (x, y, r = 90) => circle(x, y, r, { fill: '#fff4d6', glow: { r: 140, a: 0.9, c: '#ffc070' }, shade: 0, hl: 0 });
 const stars = (seed, n, alpha) =>
-  G({ alpha }, scatter(n, seed, r => circle(r.range(-1200, 3200), r.range(-1500, 700), r.range(1, 3.2), { fill: '#fff8e8', alpha: t => 0.6 + 0.4 * Math.sin(t * r.range(1, 4) + r() * 6), shade: 0, hl: 0 })));
+  G({ alpha }, scatter(n, seed, r => {
+    const x = r.range(-1200, 3200), y = r.range(-1500, 700), rr = r.range(1, 3.2), f = r.range(1, 4), ph = r() * 6; // sorteio fora da função de t
+    return circle(x, y, rr, { fill: '#fff8e8', alpha: t => 0.6 + 0.4 * Math.sin(t * f + ph), shade: 0, hl: 0 });
+  }));
 const cloudBank = (seed, y, w, col = '#f3d2c0', sc = 1) =>
   G({ fill: col, sun: [0.8, -0.5], shade: { a: 0.45, dp: 26 * sc }, hl: { a: 0.6, dp: 12 * sc } }, scatter(6, seed, (r, i) =>
     G({ merge: true, x: -600 + i * (w / 5) + r.range(-80, 80), y: y + r.range(-40, 40), s: sc * r.range(0.8, 1.3) }, [
@@ -119,13 +122,15 @@ const countdown = (x, y, t0) =>
   G({ x, y, s: 1.4 }, [
     rect(-22, -140, 44, 150, { r: 10, fill: '#2b2533', shade: 0.3, hl: 0.3 }),
     ...[0, 1, 2].map(i =>
-      circle(0, -112 + i * 46, 15, {
+      G({ x: 0, y: -112 + i * 46, s: t => pop(t, t0 + i) * pop(t, t0 + 3) }, [circle(0, 0, 15, {
         fill: t => (t >= t0 + 3 ? '#7dff9a' : t >= t0 + i ? '#ff5a3c' : '#5a2a2a'),
         glow: t => (t >= t0 + i ? { r: 26, a: 0.9, c: t >= t0 + 3 ? '#7dff9a' : '#ff6a3c' } : 0),
         shade: 0, hl: 0.4,
-      }),
+      })]),
     ),
   ]);
+// "pop": a luz incha ao acender e assenta balançando (overshoot amortecido)
+const pop = (t, t0) => (t < t0 ? 1 : 1 + 0.45 * Math.exp(-7 * (t - t0)) * Math.sin(2 * Math.PI * 2.6 * (t - t0)));
 
 // ------------------------------------------------------------------ plano 1: contagem e ignição
 const IGN = 4.4, LIFT = 5.4;
@@ -142,11 +147,11 @@ const shot1 = scene({
     layer({ z: 3 }, [hills(850, C.hill2, 5, 90)]),
     layer({ z: 1 }, [
       pad(),
-      tower(1120, kf([IGN, 0], [LIFT + 0.4, 1])),
+      tower(1120, acao(kf([IGN, 0], [LIFT + 0.4, 1]), { antecipa: 0.08, passa: 0.14 })),
       countdown(1240, PAD_Y - 40, 1.4),
       smoke(11, [960, PAD_Y + 40], 180, { t0: IGN + 0.1, rate: 30, size: [24, 46], speed: [380, 620] }),
       smoke(12, [960, PAD_Y + 40], 0, { t0: IGN + 0.1, rate: 30, size: [24, 46], speed: [380, 620] }),
-      G({ x: 960, y: t => PAD_Y - 52 + rise(t) }, [
+      G({ x: 960, y: t => PAD_Y - 52 + rise(t) + 6 * Math.sin(Math.PI * clamp((t - IGN) / (LIFT - IGN))) }, [
         vent(3, 46, -300, -10), vent(4, -46, -470, 190), vent(5, 44, -520, -20),
         G({ show: [IGN - 0.05, 99] }, [flame(power)]),
         rocket(),

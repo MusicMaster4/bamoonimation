@@ -11,7 +11,7 @@ import { G, blob, circle, ellipse, rect, taper, line } from './nodes.js';
 import { skeleton } from './anatomy.js';
 import { restPose } from './rig.js';
 import { body } from './geom.js';
-import { V, blink, lerp } from './anim.js';
+import { V, blink, lerp, noise, smooth } from './anim.js';
 import { darken, mix } from './color.js';
 
 // ---------------------------------------------------------------- rosto de perfil (coords do desenho)
@@ -51,6 +51,10 @@ export function boca(x, y, o = {}) {
   ]);
 }
 
+// cabelo e brinco são "partes soltas": seguem a cabeça com inércia (follow-through / overlapping action)
+const MOLA_CABELO = { freq: 1.7, amort: 0.24, ganho: 1, max: 18, pendulo: 0.7 };
+const MOLA_BRINCO = { freq: 2.4, amort: 0.12, ganho: 1.3, max: 40, pendulo: 1 };
+
 const HAIR = {
   curto: (c, hi) => [
     blob([[-30, -40], [-52, -84], [-40, -140], [2, -164], [48, -152], [66, -124], [57, -106], [34, -124], [8, -120], [-8, -106], [-16, -80], [-22, -52]], { fill: c, shade: 0.35, hl: 0.3 }),
@@ -63,13 +67,15 @@ const HAIR = {
     blob([[-6, -120], [14, -150], [48, -156], [70, -132], [70, -106], [58, -96], [52, -114], [34, -128], [10, -130]], { fill: c, shade: 0.35, hl: 0.3 }),
   ],
   coque: (c, hi) => [
-    circle(-58, -122, 30, { fill: c, shade: 0.45, hl: 0.35 }),
+    G({ px: -42, py: -118, mola: MOLA_CABELO }, [circle(-58, -122, 30, { fill: c, shade: 0.45, hl: 0.35 })]),
     blob([[-24, -40], [-50, -84], [-38, -140], [2, -162], [46, -150], [64, -122], [56, -104], [36, -122], [8, -120], [-8, -104], [-16, -80], [-18, -52]], { fill: c, shade: 0.35, hl: 0.3 }),
     taper([[-30, -132], [0, -152], [40, -144]], [0, 6, 0], { fill: hi, shade: 0, hl: 0 }),
   ],
   longo: (c, hi) => [
-    blob([[-12, -50], [-40, 40], [-70, 90, 0.6], [-96, 70], [-86, -60], [-70, -140], [-20, -176], [30, -170], [62, -150], [72, -120], [62, -100], [50, -114], [28, -124], [6, -118], [-8, -100], [-14, -80]], { fill: c, shade: 0.42, hl: 0.25 }),
-    taper([[-60, -140], [-80, -60], [-76, 40]], [0, 8, 0], { fill: hi, shade: 0, hl: 0 }),
+    G({ px: -40, py: -128, mola: MOLA_CABELO }, [
+      blob([[-12, -50], [-40, 40], [-70, 90, 0.6], [-96, 70], [-86, -60], [-70, -140], [-20, -176], [30, -170], [62, -150], [72, -120], [62, -100], [50, -114], [28, -124], [6, -118], [-8, -100], [-14, -80]], { fill: c, shade: 0.42, hl: 0.25 }),
+      taper([[-60, -140], [-80, -60], [-76, 40]], [0, 8, 0], { fill: hi, shade: 0, hl: 0 }),
+    ]),
     blob([[-6, -120], [14, -150], [48, -156], [70, -132], [70, -106], [58, -96], [52, -114], [34, -128], [10, -130]], { fill: c, shade: 0.35, hl: 0.3 }),
   ],
   careca: () => [],
@@ -83,10 +89,10 @@ export function cabecaPerfil(o = {}) {
   const hi = mix(cab, '#f6d9b0', 0.28);
   const r = o.rosto ?? {};
   const estilo = o.cabelo ?? (f ? 'ondulado' : 'curto');
-  const back = estilo === 'ondulado' && [
+  const back = estilo === 'ondulado' && G({ px: -36, py: -66, mola: MOLA_CABELO }, [
     ...[[-62, -20, 16], [-40, -8, 15], [-78, -46, 15], [-16, -4, 13]].map(([x, y, rr]) => circle(x, y, rr, { fill: cab, shade: 0.45, hl: 0.2 })),
     blob([[4, -14], [-30, -6, 0.7], [-60, -24], [-70, -60], [-40, -60], [-10, -40]], { fill: cab, shade: 0.4 }),
-  ];
+  ]);
   const ex = f ? 45 : 48, ey = -78;
   return G([
     back,
@@ -104,7 +110,7 @@ export function cabecaPerfil(o = {}) {
     ...HAIR[estilo](cab, hi),
     ellipse(f ? -2 : -6, -70, f ? 10 : 11, f ? 15 : 17, { fill: pele, shade: 0.5 }),
     taper([[f ? -4 : -8, -78], [f ? 2 : -2, -70], [f ? -2 : -6, -62]], [1.5, 2.5, 1], { fill: darken(pele, 0.18), shade: 0, hl: 0 }),
-    f && o.brinco !== false && G([line([[-1, -56], [-1, -50]], { stroke: '#c9a03e', lw: 1.5 }), circle(-1, -47, 3.2, { fill: '#ecc04f', shade: 0, hl: 0.6 })]),
+    f && o.brinco !== false && G({ px: -1, py: -56, mola: MOLA_BRINCO }, [line([[-1, -56], [-1, -50]], { stroke: '#c9a03e', lw: 1.5 }), circle(-1, -47, 3.2, { fill: '#ecc04f', shade: 0, hl: 0.6 })]),
     o.oculos && G([rect(36, -89, 28, 21, { r: 7, fill: '#ffffff18', stroke: '#2b1d1a', lw: 3.4, shade: 0, hl: 0 }), line([[36, -80], [10, -78], [-4, -74]], { stroke: '#2b1d1a', lw: 3 })]),
   ]);
 }
@@ -127,6 +133,9 @@ function quadril(o = {}) {
  *  pose: { osso: ângulo }, ik: { maoN, maoF, peN, peF: [x,y]|fn (alvo do PUNHO/TORNOZELO), angMaoN, angMaoF, angPeN, angPeF },
  *  segura: { N: nó, F: nó } — objeto na mão (coords da mão: +x ao longo dos dedos, -y = lado do polegar);
  *  skin: [peles extras], + props do rig (x, y, flip, s, rot, ground, name).
+ *  vida (1): ação secundária automática — respiração, peso que oscila, cabeça e sobrancelhas acompanhando a fala,
+ *  piscar ao virar a cabeça (0 desliga). acao: atuação do rig (antecipação, overshoot, atraso das juntas) ou false.
+ *  Cabelo ondulado/longo/coque e brinco têm mola (follow-through); `ground` também desenha a sombra de contato.
  */
 export function pessoa(o = {}) {
   const f = o.sexo === 'f';
@@ -208,8 +217,39 @@ export function pessoa(o = {}) {
   for (const [k, chain] of [['maoN', ['bracoN', 'antebracoN', 'maoN']], ['maoF', ['bracoF', 'antebracoF', 'maoF']], ['peN', ['coxaN', 'canelaN', 'peN']], ['peF', ['coxaF', 'canelaF', 'peF']]]) {
     if (ik[k] === undefined) continue;
     const angK = 'ang' + k[0].toUpperCase() + k.slice(1);
-    ikList.push({ chain, target: ik[k], endAng: ik[angK] ?? (k.startsWith('pe') ? 0 : undefined), bend: ik['bend' + k] });
+    // mãos: o alvo (kf) é interpolado em ARCO em torno do ombro — o braço gira, a mão não anda em linha reta
+    const arco = k.startsWith('mao') ? [P(chain[0]).x0, P(chain[0]).y0] : undefined;
+    ikList.push({ chain, target: ik[k], endAng: ik[angK] ?? (k.startsWith('pe') ? 0 : undefined), bend: ik['bend' + k], arco });
   }
+
+  // ---- VIDA (ação secundária automática; vida: 0 desliga, 0.5 metade, 2 dobro) ----
+  const vida = o.vida ?? 1;
+  const r0 = o.rosto ?? {};
+  const sd = (r0.piscar ?? 1) * 1.37;
+  const andando = typeof o._ativo === 'function' ? o._ativo : () => 0;
+  const fase = typeof o._fase === 'function' ? o._fase : () => 0;
+  const resp = t => Math.sin(2 * Math.PI * 0.23 * t + sd * 3); // ~14 respirações por minuto
+  const falando = r0.fala === undefined ? () => 0 : t => {
+    let s = 0;
+    for (let j = -2; j <= 2; j++) s += V(r0.fala, t + 0.07 * j) ?? 0;
+    return Math.min(1, (s / 5) * 1.8);
+  };
+  const extraVida = vida ? {
+    // respiração (o peito sobe), peso que oscila quando parado (moving hold), cabeça que acompanha a fala
+    tronco: t => vida * (-0.9 * resp(t) + 1.2 * noise(t * 0.17, sd) * (1 - andando(t))),
+    pescoco: t => vida * 0.5 * resp(t),
+    cabeca: t => vida * (1.3 * noise(t * 0.3, sd + 5) + 3.2 * falando(t) * noise(t * 2.3, sd + 11) - 1.6 * andando(t) * Math.sin(4 * Math.PI * fase(t))),
+  } : {};
+  const extra = { ...extraVida };
+  for (const [k, v] of Object.entries(o.extra ?? {})) extra[k] = extra[k] ? (t, env) => extra[k](t, env) + (V(v, t, env) ?? 0) : v;
+  // piscar ao virar a cabeça (animadores fazem isso: o piscar "esconde" a troca de direção do olhar)
+  const angCab = t => (V(o.pose?.tronco, t) ?? -90) + (V(o.pose?.pescoco, t) ?? 0) + (V(o.pose?.cabeca, t) ?? 0) + (V(o.rot, t) ?? 0);
+  const vira = t => 0.95 * smooth(70, 150, Math.abs(angCab(t + 0.09) - angCab(t + 0.01)) / 0.08);
+  const rosto = vida ? {
+    ...r0,
+    palpebra: t => Math.max(V(r0.palpebra, t) ?? 0, vira(t)),
+    sobrancelha: t => (V(r0.sobrancelha, t) ?? 0) + 0.7 * falando(t) * Math.max(0, noise(t * 1.6, sd + 13)),
+  } : r0;
 
   const node = rig({
     name: o.name ?? (f ? 'mulher' : 'homem'),
@@ -217,6 +257,9 @@ export function pessoa(o = {}) {
     ...o,
     bones,
     ik: ikList,
+    extra,
+    // a vida do rig genérico é trocada pela vida própria da pessoa (respiração, peso, fala)
+    acao: o.acao === false ? false : { vida: 0, ...(o.acao ?? {}) },
     skin: [
       // lado de lá
       legSkin('F'), { bone: 'peF', node: sapato('F') },
@@ -232,7 +275,7 @@ export function pessoa(o = {}) {
         f && blob([[-3.4 * u, yT(1.01)], [3.2 * u, yT(1.01)], [5 * u, yT(0.94)], [2 * u, yT(0.9)], [-0.6 * u, yT(0.95)]], { fill: cores.detalhe, shade: 0.25 }),
         f && taper([[-6.6 * u, yT(0.42)], [0, yT(0.44)], [4.7 * u, yT(0.42)]], [1 * u, 1 * u, 0.9 * u], { fill: darken(cores.cima, 0.14), shade: 0, hl: 0 }),
       ]) },
-      { bone: 'cabeca', node: G({ x: head.x0 + 2 * hs, y: head.y0 + 45 * hs, s: hs }, [cabecaPerfil({ ...o, pele })]) },
+      { bone: 'cabeca', node: G({ x: head.x0 + 2 * hs, y: head.y0 + 45 * hs, s: hs }, [cabecaPerfil({ ...o, pele, rosto })]) },
       // lado de cá
       legSkin('N'), { bone: 'peN', node: sapato('N') }, f && roupa !== 'calca' && saia,
       armSkin('N'), mangaCurta('N'), hold('N'), { bone: 'maoN', node: mao('N') },
@@ -317,15 +360,17 @@ export function caminhada(p, o) {
     const f = foot(t, ph);
     return [f.dx, o.chao - sole - y(t) - f.lift];
   };
-  const arm = ph => t => {
-    const d = X(t) - x0;
-    const pp = (((d * duty) / step + ph) % 1 + 1) % 1;
-    return 180 + 22 * Math.cos(2 * Math.PI * pp) * ativo(t);
-  };
+  const fase = ph => t => ((((X(t) - x0) * duty) / step + ph) % 1 + 1) % 1;
+  const arm = ph => t => 180 + 22 * Math.cos(2 * Math.PI * fase(ph)(t)) * ativo(t);
+  // follow-through do braço: o cotovelo dobra mais no balanço para a frente, um pouco DEPOIS do ombro
+  const ante = ph => t => -12 - ativo(t) * (6 + 16 * (0.5 - 0.5 * Math.cos(2 * Math.PI * (fase(ph)(t) - 0.08))));
   return {
     y,
-    pose: { tronco: t => -90 + 3 * ativo(t), bracoN: arm(0), bracoF: arm(0.5), antebracoN: t => -12 - 10 * ativo(t), antebracoF: t => -12 - 10 * ativo(t) },
+    pose: { tronco: t => -90 + 3 * ativo(t), bracoN: arm(0), bracoF: arm(0.5), antebracoN: ante(0), antebracoF: ante(0.5) },
     ik: { peN: pe(0), peF: pe(0.5), angPeN: t => foot(t, 0).ang, angPeF: t => foot(t, 0.5).ang },
+    // usados pela pessoa(): a vida (peso, cabeça) se adapta a quem está andando
+    _ativo: ativo,
+    _fase: fase(0),
   };
 }
 function smoothstep01(x) {

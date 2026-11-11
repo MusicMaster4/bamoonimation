@@ -12,7 +12,7 @@
 import { rig, G, blob, circle, ellipse, taper, rep, lin } from './nodes.js';
 import { skeleton } from './anatomy.js';
 import { body } from './geom.js';
-import { V, lerp, lerpAny, clamp, ease } from './anim.js';
+import { V, KF, acao, lerp, lerpAny, clamp, ease } from './anim.js';
 import { darken, mix } from './color.js';
 
 const D = Math.PI / 180;
@@ -157,10 +157,24 @@ export function ave(o = {}) {
   const tuck = t => !V(o.pe, t);
   const asaN = t => V(o.asa, t) ?? ASA.dobrada;
   const asaF = t => V(o.asaF, t) ?? asaN(t);
+  // atuação nos kf do usuário (antecipação/overshoot, atraso da cabeça em relação ao corpo)
+  const A = (v, d) => (v instanceof KF && o.acao !== false ? acao(v, { atraso: d }) : v);
+  const corpo = A(o.corpo, 0), cabeca = A(o.cabeca, 0.06), caudaAng = A(o.caudaAng, 0.05);
+  // ação secundária: o corpo sobe na descida da asa e desce na subida (só em voo, pernas recolhidas)
+  const bob = t => {
+    if (o.vida === 0) return 0;
+    let m = 0, voo = 0;
+    for (let j = -4; j <= 4; j++) {
+      m += asaN(t + j * 0.1).e ?? 0;
+      voo += tuck(t + j * 0.05) ? 1 : 0;
+    }
+    return (0.035 * T * (V(o.s, t) ?? 1) * ((asaN(t - 0.05).e ?? 0) - m / 9) * (voo / 9)) / 90;
+  };
+  const yy = o.y === undefined ? undefined : t => V(o.y, t) + bob(t);
   return rig({
-    name: o.name ?? (rap ? 'ave de rapina' : 'pássaro'), plan: 'ave', ...o, bones,
+    name: o.name ?? (rap ? 'ave de rapina' : 'pássaro'), plan: 'ave', ...o, bones, y: yy,
     pose: {
-      corpo: t => -15 + (V(o.corpo, t) ?? 0), cabeca: t => 50 + (V(o.cabeca, t) ?? 0), cauda: t => 190 + (V(o.caudaAng, t) ?? 0),
+      corpo: t => -15 + (V(corpo, t) ?? 0), cabeca: t => 50 + (V(cabeca, t) ?? 0), cauda: t => 190 + (V(caudaAng, t) ?? 0),
       coxaN: t => V(o.coxa, t) ?? 55, coxaF: t => V(o.coxa, t) ?? 55,
       tibioN: t => (tuck(t) ? 150 : 70), tarsoN: t => (tuck(t) ? -150 : -45), dedosN: t => (tuck(t) ? -60 : -80),
       tibioF: t => (tuck(t) ? 150 : 70), tarsoF: t => (tuck(t) ? -150 : -45), dedosF: t => (tuck(t) ? -60 : -80),
@@ -172,10 +186,11 @@ export function ave(o = {}) {
     ],
     skin: [
       pelesAsa('F', T, asaF, C, 0.1),
-      { draw: S => { const tb = S.get('tibioF'); return blob(body([[tb.x0, tb.y0], [tb.x1, tb.y1]], [13 * k, 11 * k, 7 * k], [15 * k, 13 * k, 8 * k], { n: 6 }), { fill: darken(C.corpo, 0.1), shade: 0.4 }); }, side: 'far', hidden: t => tuck(t) || !rap },
+      { draw: S => { const tb = S.get('tibioF'), dx = tb.x1 - tb.x0, dy = tb.y1 - tb.y0; return blob(body([[tb.x0 - dx * 0.45, tb.y0 - dy * 0.45], [tb.x0, tb.y0], [tb.x1, tb.y1]], [16 * k, 14 * k, 6 * k], [19 * k, 16 * k, 7 * k], { n: 8 }), { fill: darken(mix(C.corpo, C.ventre, 0.35), 0.1), shade: 0.4 }); }, side: 'far', hidden: t => tuck(t) || !rap },
       { limb: ['tarsoF'], w: [11 * k, 9 * k], fill: darken(C.perna, 0.08), hidden: tuck },
       { bone: 'dedosF', local: true, node: garra(o.garra, C.perna, C.unha, false, T), hidden: tuck },
-      { bone: 'cauda', node: G({ s: k, fill: lin(0, C.cauda[0], C.cauda[1]), shade: 0.35, hl: 0.3 }, rep(5, i => G({ rot: t => 190 + (i - 2) * (4 + 5 * (V(o.cauda, t) ?? 0)) }, [FEATHER(140, 46)]))) },
+      // cauda com mola: segue os giros do corpo com atraso e assenta (follow-through)
+      { bone: 'cauda', node: G({ s: k, fill: lin(0, C.cauda[0], C.cauda[1]), shade: 0.35, hl: 0.3, mola: o.vida === 0 ? null : { freq: 2.2, amort: 0.32, ganho: 0.9, max: 14 } }, rep(5, i => G({ rot: t => 190 + (i - 2) * (4 + 5 * (V(o.cauda, t) ?? 0)) }, [FEATHER(140, 46)]))) },
       { bone: 'corpo', node: G({ s: k }, [
         blob(rap
           ? [[-64, -4], [-40, -30], [20, -52], [90, -60], [132, -54], [150, -36], [140, -12], [110, 12], [60, 32], [0, 32], [-44, 20]]
@@ -204,7 +219,7 @@ export function ave(o = {}) {
             circle(17, -6, 6.5, { fill: C.olho, shade: 0, hl: 0 }),
             circle(19, -8, 2, { fill: '#fff', shade: 0, hl: 0 }),
           ])]) },
-      { draw: S => { const tb = S.get('tibioN'); return blob(body([[tb.x0, tb.y0], [tb.x1, tb.y1]], [14 * k, 12 * k, 8 * k], [16 * k, 14 * k, 9 * k], { n: 6 }), { fill: C.corpo, shade: 0.4, hl: 0.3 }); }, side: 'near', hidden: t => tuck(t) || !rap },
+      { draw: S => { const tb = S.get('tibioN'), dx = tb.x1 - tb.x0, dy = tb.y1 - tb.y0; return blob(body([[tb.x0 - dx * 0.45, tb.y0 - dy * 0.45], [tb.x0, tb.y0], [tb.x1, tb.y1]], [17 * k, 15 * k, 6 * k], [20 * k, 17 * k, 7 * k], { n: 8 }), { fill: mix(C.corpo, C.ventre, 0.35), shade: 0.4, hl: 0.3, tex: { k: 'brush', a: 0.25, s: 0.5 } }); }, side: 'near', hidden: t => tuck(t) || !rap },
       { limb: ['tarsoN'], w: [12 * k, 10 * k], fill: C.perna, hidden: tuck },
       { bone: 'dedosN', local: true, node: garra(o.garra, C.perna, C.unha, true, T), hidden: tuck },
       pelesAsa('N', T, asaN, C),

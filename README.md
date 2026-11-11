@@ -13,7 +13,10 @@ agente desenhe *qualquer coisa* com poucas linhas — e renderize rápido, em pa
 **anatomia embutida**: esqueletos de referência (humano, quadrúpede, ave, peixe) com proporções reais e
 limites articulares, uma **figura humana base pronta** (homem e mulher, `pessoa()`), caminhada anatômica
 (`caminhada()`) e um **verificador** (`bamoo check`) que acusa poses impossíveis, pés deslizando,
-camadas fora de ordem e texto na tela.
+camadas fora de ordem e texto na tela. E os **12 princípios da animação** vêm embutidos: slow in/out
+automático, antecipação, overshoot e quebra das juntas nos personagens, molas (follow-through), squash &
+stretch, ação secundária (respiração, piscar, fala), sombras de contato e staging — ver
+[`docs/PRINCIPIOS.md`](docs/PRINCIPIOS.md).
 
 | Tubarão caçando | Casal na cafeteria |
 |---|---|
@@ -35,10 +38,11 @@ Vídeos completos (prévias em 720p — rode `render` para 1080p/4K em qualquer 
 5. [Referência da API](#referência-da-api)
 6. [Como chegar no estilo (boas práticas)](#como-chegar-no-estilo-boas-práticas)
 7. [Personagens e anatomia](#personagens-e-anatomia)
-8. [Técnicas de animação](#técnicas-de-animação)
-9. [Desempenho e tamanho de arquivo](#desempenho-e-tamanho-de-arquivo)
-10. [Os benchmarks](#os-benchmarks)
-11. [Estrutura do repositório](#estrutura-do-repositório)
+8. [Os 12 princípios da animação](#os-12-princípios-da-animação)
+9. [Técnicas de animação](#técnicas-de-animação)
+10. [Desempenho e tamanho de arquivo](#desempenho-e-tamanho-de-arquivo)
+11. [Os benchmarks](#os-benchmarks)
+12. [Estrutura do repositório](#estrutura-do-repositório)
 
 ---
 
@@ -77,8 +81,9 @@ Comandos:
 | `still <cena.js> -t 1.5[,3,4.2] [--scale 0.5] [--grid]` | renderiza quadros PNG (padrão: escala 0.5) |
 | `sheet <cena.js> [-n 12] [--cols 4] [--scale 0.25] [--from s] [--to s] [--grid]` | folha de contato JPG — a forma mais barata de "ver" a animação |
 | `render <cena.js> [--fps 30] [--scale 1] [--from s] [--to s] [--workers N] [--crf 18] [--format mp4\|webm\|mov\|gif\|png] [--audio arq]` | vídeo final, renderizado em paralelo |
-| `check <cena.js> [--fps 12] [--allow-text]` | **verificador**: ordem das camadas, texto na tela, articulações fora do limite, membros além do alcance, proporções, simetria, pés afundando/deslizando, teletransportes. Sai com código 1 se houver erro |
+| `check <cena.js> [--fps 12] [--allow-text]` | **verificador**: ordem das camadas, texto na tela, articulações fora do limite, membros além do alcance, proporções, simetria, pés afundando/deslizando, teletransportes — e princípios: começo/parada brusca (sem slow in/out), twinning, personagem congelado, quadro parado, personagem cortado/pequeno demais. Sai com código 1 se houver erro |
 | `still/sheet ... --rig` / `--layers` | sobreposições de depuração: esqueletos (vermelho = problema, cruz verde = alvo IK) / cada camada tingida com legenda de z |
+| `still/sheet ... --arcos` / `--silhueta` | trilhas ±0.6 s das extremidades dos rigs (arcos e espaçamento) / teste de staging (plano focal em preto chapado) |
 | `info <cena.js>` | duração, planos, camadas, nº de quadros por FPS |
 | `bench <cena.js>` | mede ms/quadro |
 
@@ -95,7 +100,8 @@ O objetivo é **gastar poucos tokens** e **convergir rápido**:
    com várias poses lado a lado, como em `scenes/hawk.js`. Ajuste até ficar bom, depois anime.
 3. **Tempo e movimento** — `sheet` mostra 12 instantes numa única imagem. Use `--from/--to` para olhar um
    trecho (ex.: um impacto). Isso substitui assistir ao vídeo.
-4. **Verificação** — `check` até zerar os erros; `sheet --rig` nos trechos de ação dos personagens.
+4. **Verificação** — `check` até zerar os erros; `sheet --rig` nos trechos de ação dos personagens;
+   `still --arcos` nos gestos (arcos e espaçamento) e `still --silhueta` nas poses-chave (staging).
 5. **Vídeo** — `render --scale 0.5` para prévia, depois `render` final (1080p) ou `--scale 2` (4K).
 6. Escreva cada plano como uma `scene` e junte com `film([...])` com transições.
 
@@ -146,7 +152,8 @@ Qualquer prop (inclusive pontos de formas) pode ser:
 
 ```js
 x: 300                                         // fixo
-x: kf([0, 100], [1.5, 600, 'out'], [2, 560, 'back'])   // keyframes (easing do trecho que chega)
+x: kf([0, 100], [1.5, 600], [2, 560])         // keyframes 'auto': slow in/out nos repousos, passagem lisa nas chaves do meio
+x: kf([0, 100], [1.5, 600, 'out'], [2, 560, 'back'])   // easing explícito (do trecho que chega) = controle manual
 x: t => 960 + 200 * Math.sin(t)                // função do tempo (segundos da cena)
 pts: kf([0, bocaFechada], [0.3, bocaAberta])   // morphing de formas (mesmo nº de pontos)
 fill: kf([0, '#203060'], [3, '#f0a070'])       // cores interpolam em OKLab
@@ -173,6 +180,8 @@ fill: kf([0, '#203060'], [3, '#f0a070'])       // cores interpolam em OKLab
 | fábrica | descrição |
 |---|---|
 | `G(props, filhos)` / `G(filhos)` | grupo. `clip: forma` recorta; `merge: true` une todos os filhos numa silhueta única sombreada (nuvens, fumaça, copas); `iso` isola a opacidade |
+| props `squash`, `mola` (qualquer nó) | `squash: k \| { k, base, tam }` estica na velocidade e achata no impacto (volume constante); `mola: true \| { freq, amort, ganho, max, pendulo }` gira no pivô (px, py) com inércia — orelhas, cabelo, rabo, antena, lustre |
+| `sombra(x, chao, largura, { a })` | sombra de contato suave (multiply, na cor de sombra da luz); rigs com `ground` já ganham sob os pés |
 | `layer(props, filhos)` | camada de profundidade (só em `scene.layers`) |
 | `dyn((t, env) => nós)` | nós gerados por quadro (criaturas com espinha, IK manual, listas variáveis) |
 | `custom((ctx, t, env) => {...})` | desenho livre com a API Canvas 2D |
@@ -199,7 +208,11 @@ Utilitários de cor: `mix(a, b, t)` (OKLab), `lighten`, `darken`, `alpha`, `adj(
 
 | helper | descrição |
 |---|---|
-| `kf([t, v, ease], ...)` | keyframes; `.loop(p)`, `.delay(s)`, `.at(t)` |
+| `kf([t, v, ease], ...)` | keyframes; sem easing = tangentes automáticas (slow in/out). `.loop(p)`, `.delay(s)`, `.arco(k)` (trechos em arco), `.at(t)` |
+| `acao(kf, { antecipa, passa, atraso, polar, exagero })` | atuação: antecipação + overshoot (escalam com a rapidez), atraso, interpolação em arco em torno de um centro |
+| `segue(v, { freq, amort })`, `atraso(v, s)` | follow-through: valor que persegue outro como mola / o mesmo valor atrasado |
+| `quica({ x0, vx, chao, altura, t0, queda, perda })` | objeto quicando (arcos, alturas que decaem, squash) — espalhe num grupo com a base em (0,0) |
+| `pulo({ de, ate, altura, t0, dur })` | pulo com agachar, esticar, arco, achatar e amortecer |
 | `ease.*` | `linear in out inOut in2 out2 inOut2 sine expoIn expoOut expo back backIn backInOut elastic bounce step` |
 | `tw(t, t0, t1, a, b, e)`, `prog(t, t0, t1, e)` | tween / progresso 0..1 |
 | `osc(freq, amp, fase, base)`, `wig(freq, amp, seed, base)` | oscilação senoidal / tremor orgânico (como props) |
@@ -301,12 +314,17 @@ O que faz o visual "parecer desenho de verdade" — aprendido construindo os ben
 - Membros do lado de lá: mesma forma, cor `darken(cor, 0.08)`, desenhados antes do tronco.
 - Veja `person()` em `scenes/cafe.js`, `shark()` em `scenes/shark.js`, `hawk()`/`rabbit()` em `scenes/hawk.js`.
 
-**Movimento**
-- Nada parado: plantas com `osc`, água com `wave`, respiração, piscadas, partículas no ar.
-- Antecipação e assentamento: easings `back`, `out`, `spring`; impactos com `shake: t => k * decay(t, t0)` e um
-  pequeno "soco" de zoom.
+**Movimento** (detalhes em [`docs/PRINCIPIOS.md`](docs/PRINCIPIOS.md))
+- Nada parado: plantas com `osc`, água com `wave`, partículas no ar. Personagens já respiram, piscam e oscilam o
+  peso; a câmera já tem uma deriva lenta.
+- Antecipação e assentamento: automáticos nos rigs (kf sem easing); fora deles, `acao(kf)`; impactos com
+  `shake: t => k * decay(t, t0)` e um pequeno "soco" de zoom.
+- Partes soltas com `mola` (follow-through), objetos que quicam/pulam com `quica`/`pulo` + `squash`.
 - Ação rápida: `mblur` só no trecho rápido (custa ×N), partículas `stretch`, rastros.
 - Câmera sempre com movimento lento (pan/zoom/dolly) — dá vida mesmo a planos parados.
+- **Nunca sorteie dentro de função de t** (`r()`, `r.range()`, `Math.random()` dentro de `t => ...`): cada quadro
+  sorteia de novo e a imagem pisca. Sorteie na montagem (`scatter(n, seed, r => { const ph = r(); ... })`) e varie
+  no tempo com `noise`/`wig`. O `check` acusa cena não determinística.
 - Sem texto: conte com enquadramento, expressão e ação (ex.: a contagem do foguete é feita com luzes que
   acendem). Se o pedido exigir texto, `captions: [[t0, t1, 'texto']]` e `text()` existem (fonte manuscrita) —
   rode o `check` com `--allow-text`.
@@ -349,6 +367,29 @@ Pranchas de referência para inspecionar: [`scenes/testes/pessoas.js`](scenes/te
 [`scenes/testes/andar.js`](scenes/testes/andar.js) (caminhada), [`scenes/testes/aves.js`](scenes/testes/aves.js) (ciclo de batida e poses de aves), `poseTest` em [`scenes/hawk.js`](scenes/hawk.js) (gavião e coelho).
 
 ![aves](media/aves.jpg)
+
+## Os 12 princípios da animação
+
+Os princípios clássicos (Thomas & Johnston) estão no motor — a maior parte de forma **automática** — e o
+verificador mede o que dá para medir. Guia completo: [`docs/PRINCIPIOS.md`](docs/PRINCIPIOS.md); prancha de
+teste: [`scenes/testes/principios.js`](scenes/testes/principios.js).
+
+![princípios](media/principios.jpg)
+
+| princípio | no motor |
+|---|---|
+| squash & stretch | prop `squash`, `quica()`, `pulo()` (volume constante) |
+| antecipação | automática em poses/alvos IK com `kf` nos rigs; `acao()` em qualquer valor |
+| staging | vinheta segue os personagens do plano focal; `--silhueta`; check de cortado/pequeno |
+| pose a pose / direto | `kf` com tangentes automáticas / `dyn`, `particles`, `noise` |
+| follow-through / overlap | quebra das juntas e overshoot automáticos nos rigs; prop `mola` (cabelo, brinco e cauda já vêm com ela); `segue()` |
+| slow in / slow out | `kf` sem easing repousa nos extremos e passa liso pelas chaves do meio; check acusa começo/parada brusca |
+| arcos | mãos da pessoa em arco em torno do ombro; `kf().arco()`, `acao(..., { polar })`; `--arcos` |
+| ação secundária | respiração, peso, fala, piscar ao virar a cabeça; corpo da ave na batida; câmera viva |
+| timing | antecipação/overshoot escalam com a rapidez; `look.steps` |
+| exagero | `scene({ exagero })`, `acao: { exagero }` |
+| solid drawing | esqueletos com limites; sombras de contato automáticas; `sombra()` |
+| appeal | anti-twinning (lado de lá defasado), moving holds; check de twinning |
 
 ## Técnicas de animação
 
@@ -434,13 +475,14 @@ src/
   pessoa.js           figura humana base (homem/mulher) + caminhada anatômica
   ave.js              ave base (rapina/pássaro) com asa anatômica projetada + poses de voo
   boca.js             boca aberta de animal (garganta, língua, dentes do lado de lá, abertura côncava)
-  check.js            verificador (bamoo check)
+  check.js            verificador (bamoo check) — anatomia, camadas, texto e princípios de animação
   textures.js         texturas procedurais
   fonts.js            fontes embutidas
   cli.js, worker.js   linha de comando e render paralelo
 scenes/               os 4 benchmarks + hello.js (exemplo mínimo)
-scenes/testes/        pranchas de referência (pessoas, caminhada, poses de animais)
+scenes/testes/        pranchas de referência (pessoas, caminhada, poses de animais, princípios)
 docs/ANATOMIA.md      guia de anatomia para personagens
+docs/PRINCIPIOS.md    os 12 princípios da animação: o que é automático, ferramentas e como conferir
 assets/fonts/         fontes livres (OFL/Apache) com licenças
 media/                prévias dos benchmarks
 AGENTS.md             referência compacta para agentes

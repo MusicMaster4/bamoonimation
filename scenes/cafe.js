@@ -1,7 +1,7 @@
 // Benchmark 2 — Um casal se conhecendo numa cafeteria (tarde de chuva).
 // 3 planos: ele chega (andar com IK) -> "posso sentar?" -> conversa, risos, café.
 import {
-  scene, film, layer, G, blob, ellipse, circle, rect, path, taper, line, particles, rays, lin, rad, pessoa, caminhada,
+  scene, film, layer, G, blob, ellipse, circle, rect, path, taper, line, particles, rays, lin, rad, pessoa, caminhada, sombra,
   kf, osc, rng, scatter, rep, blink, talk, gait, gaitPhase, ik2, smooth, clamp, lerp, V, wave, darken, mix,
 } from 'bamoonimation';
 
@@ -40,6 +40,7 @@ const heldCup = (seed, tilt = 0) => G({ x: 16, y: -14, rot: tilt }, [cup(seed)])
 
 const table = x =>
   G({ x, y: TABLE }, [
+    sombra(0, FLOOR - TABLE, 260, { a: 0.5 }),
     taper([[0, 10], [0, 160], [0, 280]], [22, 14, 20], { fill: P.iron }),
     blob([[-84, 289], [84, 289], [46, 272], [-46, 272]], { fill: P.iron }),
     rect(-180, -8, 360, 18, { r: 7, fill: lin(90, '#fffdf8', P.marble, '#d8cdbd'), hl: 0.4 }),
@@ -48,6 +49,7 @@ const table = x =>
 
 const chair = (x, flip = false, col = P.wood) =>
   G({ x, y: SEAT + 8, flip, fill: col, shade: 0.35, hl: 0.25 }, [
+    sombra(-2, FLOOR - SEAT - 8, 170, { a: 0.4 }),
     taper([[-46, 10], [-50, 90], [-56, 164]], [11, 9]),
     taper([[44, 10], [46, 90], [52, 164]], [11, 9]),
     line([[-48, 110], [46, 110]], { stroke: darken(col, 0.05), lw: 7 }),
@@ -251,7 +253,7 @@ const standing = pessoa({
   ik: {
     peN: [36, FLOOR - SOLE_M - M_STAND.y], peF: [-34, FLOOR - SOLE_M - M_STAND.y],
     maoN: [70, -110], angMaoN: -6,
-    maoF: kf([0, [8, 26]], [0.8, [150, -110], 'back'], [2.6, [156, -100]], [3.4, [8, 26]]), angMaoF: kf([0, 72], [0.8, -10], [2.6, -10], [3.4, 72]),
+    maoF: kf([0, [8, 26]], [0.8, [150, -110]], [2.6, [156, -100]], [3.4, [8, 26]]), angMaoF: kf([0, 72], [0.8, -10], [2.6, -10], [3.4, 72]),
   },
   rosto: { piscar: 7, fala: t => talk(t, 0.6, 2.3, 1), sorriso: kf([0, 0.2], [2.4, 0.3], [3.4, 0.8]), sobrancelha: kf([0, 0], [0.7, 1], [2.2, 0.3]) },
   segura: { N: xicara(2) },
@@ -265,7 +267,7 @@ const shot2 = scene({
     layer({ z: 1 }, [
       chair(TX + 260, true), chair(TX - 260, false), table(TX), G({ x: TX + 70, y: TABLE - 8 }, [cup(4)]),
       woman({
-        cabeca: kf([0, 18], [2.3, 18], [2.9, -4, 'back']), sorriso: kf([0, 0.15], [2.6, 0.2], [3.2, 1]), fala: t => talk(t, 3.3, 4.8, 4), sobrancelha: kf([2.4, 0], [2.8, 1], [4, 0.4]),
+        cabeca: kf([0, 18], [2.3, 18], [2.9, -4]), sorriso: kf([0, 0.15], [2.6, 0.2], [3.2, 1]), fala: t => talk(t, 3.3, 4.8, 4), sobrancelha: kf([2.4, 0], [2.8, 1], [4, 0.4]),
         maoN: kf([0, [118, -150]], [2.4, [118, -150]], [3, [176, -112]]), angMaoN: kf([2.4, -60], [3, 0]),
         maoF: kf([0, [126, -138]], [2.4, [126, -138]], [3, [190, -114]]),
         segura: { N: G({ show: [0, 3] }, [livro()]) },
@@ -288,7 +290,7 @@ const sitting = pessoa({
     peN: [152, ankleM], peF: [120, ankleM],
     maoN: kf([0, [178, -118]], [sipT[0], [178, -118]], [sipT[0] + 0.5, [104, -236]], [sipT[1], [104, -236]], [sipT[1] + 0.5, [178, -118]]),
     angMaoN: kf([0, -4], [sipT[0], -4], [sipT[0] + 0.5, -48], [sipT[1], -48], [sipT[1] + 0.5, -4]),
-    maoF: kf([0, [150, -40]], [0.6, [176, -200], 'back'], [1.6, [160, -186]], [2.4, [150, -40]]), angMaoF: kf([0, 20], [0.6, -50], [1.6, -30], [2.4, 20]),
+    maoF: kf([0, [150, -40]], [0.6, [176, -200]], [1.6, [160, -186]], [2.4, [150, -40]]), angMaoF: kf([0, 20], [0.6, -50], [1.6, -30], [2.4, 20]),
   },
   rosto: { piscar: 7, fala: t => talk(t, 0.4, 2.5, 9), sorriso: kf([0, 0.4], [2.7, 0.5], [3.1, 1]), sobrancelha: t => 0.6 * Math.max(0, Math.sin(t * 2.3)) },
   segura: { N: xicara(5) },

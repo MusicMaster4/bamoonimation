@@ -205,6 +205,17 @@ a técnica `wave()` + `body()` (exemplo de uso em `scenes/shark.js` — os perfi
 
 Para posicionar peles, rode `bamoo still cena.js -t 0 --rig --grid` com o rig em pose de descanso.
 
+## Atuação automática (os princípios da animação no esqueleto)
+
+Todo rig (pessoa, ave, animais) recebe **atuação automática** — detalhes em [PRINCIPIOS.md](PRINCIPIOS.md):
+antecipação e overshoot nas poses/alvos IK escritos com `kf` (sem easing), **quebra sucessiva das juntas**
+(cada nível segue o pai com 0.03 s), o lado de lá defasado (anti-twinning) e "moving hold". O membro de apoio
+(do osso de contato até a primeira ramificação: pé/canela/coxa, pata/meta/tíbia/fêmur) **nunca** é alterado, e
+o verificador checa limites e alcance na pose que **você** escreveu — o que a atuação acrescenta é travado nos
+limites em silêncio. Ajuste com `acao: { antecipa, passa, atraso, desfase, vida, exagero }` ou desligue com
+`acao: false`. Na `pessoa()`, `vida` controla respiração, peso, fala e o piscar ao virar a cabeça; as mãos (kf)
+andam em **arco** em torno do ombro. Rigs com `ground` ganham **sombra de contato** sob os pés.
+
 ## Movimento sem patinar
 
 - **Pessoas andando**: `caminhada()` (resolve pés, quadril e braços). Velocidade de caminhada ≈ 0.5–0.8 × altura/s;
@@ -218,5 +229,6 @@ Para posicionar peles, rode `bamoo still cena.js -t 0 --rig --grid` com o rig em
 
 1. `bamoo check cena.js` → **zero erros** (avisos: entenda cada um).
 2. `bamoo sheet cena.js --rig` nos trechos de ação: nenhum osso vermelho, nada atravessando o chão.
+   `--arcos` nos gestos: trilhas em curva limpa, pontos juntos nos extremos (slow in/out).
 3. Silhueta legível no primeiro quadro de cada pose-chave (`still`).
 4. Sem texto na tela, a menos que o pedido inclua texto (`--allow-text`).
