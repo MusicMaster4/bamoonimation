@@ -209,7 +209,7 @@ const woman = (o = {}) =>
     ...W, name: 'ela', x: W_SIT.x, y: W_SIT.y, flip: true, ground: FLOOR,
     pose: { tronco: o.tronco ?? -82, pescoco: o.pescoco ?? 0, cabeca: o.cabeca ?? 0 },
     ik: { peN: [150, ankleW], peF: [118, ankleW], maoN: o.maoN ?? [150, -130], angMaoN: o.angMaoN ?? 10, maoF: o.maoF ?? [175, -128], angMaoF: o.angMaoF ?? 0 },
-    rosto: { piscar: 3, sorriso: o.sorriso ?? 0.3, fala: o.fala ?? 0, sobrancelha: o.sobrancelha ?? 0, olhar: o.olhar ?? 0 },
+    rosto: { piscar: 3, expressao: o.expressao, sorriso: o.sorriso ?? (o.expressao ? 0 : 0.3), fala: o.fala ?? 0, sobrancelha: o.sobrancelha ?? 0, olhar: o.olhar ?? 0 },
     segura: o.segura,
   });
 
@@ -218,12 +218,12 @@ const PASSO = 0.36 * M.altura, DUTY = 0.6;
 const WALK1 = TX - 430; // para onde o plano 2 começa (ele em pé ao lado da mesa)
 const WALK0 = WALK1 - (2 + 0.5) * (PASSO / DUTY); // 2,5 ciclos: termina com os dois pés no chão
 const manX = kf([0.6, WALK0], [4.8, WALK1, 'sine']);
-const passos = caminhada(M, { x: manX, chao: FLOOR, passo: PASSO, duty: DUTY });
+const passos = caminhada(M, { x: manX, chao: FLOOR, passo: PASSO, duty: DUTY, jeito: 'confiante' });
 const walker = pessoa({
   ...M, name: 'ele andando', ground: FLOOR, x: t => manX.at(t), ...passos,
   pose: { ...passos.pose, cabeca: t => -3 + 5 * smooth(4.6, 5.6, t) },
   ik: { ...passos.ik, maoN: [70, -110], angMaoN: -6 },
-  rosto: { piscar: 7, sorriso: t => 0.1 + 0.5 * smooth(5, 6, t) },
+  rosto: { piscar: 7, expressao: [[0, 'determinado', 0.6], [5.2, 'feliz', 0.8]] },
   segura: { N: xicara(1) },
 });
 const shot1 = scene({
@@ -255,7 +255,7 @@ const standing = pessoa({
     maoN: [70, -110], angMaoN: -6,
     maoF: kf([0, [8, 26]], [0.8, [150, -110]], [2.6, [156, -100]], [3.4, [8, 26]]), angMaoF: kf([0, 72], [0.8, -10], [2.6, -10], [3.4, 72]),
   },
-  rosto: { piscar: 7, fala: t => talk(t, 0.6, 2.3, 1), sorriso: kf([0, 0.2], [2.4, 0.3], [3.4, 0.8]), sobrancelha: kf([0, 0], [0.7, 1], [2.2, 0.3]) },
+  rosto: { piscar: 7, fala: t => talk(t, 0.6, 2.3, 1), expressao: [[0, 'timido', 0.7], [0.7, 'preocupado', 0.6], [2.5, 'neutro'], [3.4, 'feliz']] },
   segura: { N: xicara(2) },
 });
 const shot2 = scene({
@@ -267,7 +267,8 @@ const shot2 = scene({
     layer({ z: 1 }, [
       chair(TX + 260, true), chair(TX - 260, false), table(TX), G({ x: TX + 70, y: TABLE - 8 }, [cup(4)]),
       woman({
-        cabeca: kf([0, 18], [2.3, 18], [2.9, -4]), sorriso: kf([0, 0.15], [2.6, 0.2], [3.2, 1]), fala: t => talk(t, 3.3, 4.8, 4), sobrancelha: kf([2.4, 0], [2.8, 1], [4, 0.4]),
+        cabeca: kf([0, 18], [2.3, 18], [2.9, -4]), fala: t => talk(t, 3.3, 4.8, 4),
+        expressao: [[0, 'pensativo', 0.4], [2.4, 'surpreso', 0.8], [3.2, 'feliz']],
         maoN: kf([0, [118, -150]], [2.4, [118, -150]], [3, [176, -112]]), angMaoN: kf([2.4, -60], [3, 0]),
         maoF: kf([0, [126, -138]], [2.4, [126, -138]], [3, [190, -114]]),
         segura: { N: G({ show: [0, 3] }, [livro()]) },
@@ -292,7 +293,7 @@ const sitting = pessoa({
     angMaoN: kf([0, -4], [sipT[0], -4], [sipT[0] + 0.5, -48], [sipT[1], -48], [sipT[1] + 0.5, -4]),
     maoF: kf([0, [150, -40]], [0.6, [176, -200]], [1.6, [160, -186]], [2.4, [150, -40]]), angMaoF: kf([0, 20], [0.6, -50], [1.6, -30], [2.4, 20]),
   },
-  rosto: { piscar: 7, fala: t => talk(t, 0.4, 2.5, 9), sorriso: kf([0, 0.4], [2.7, 0.5], [3.1, 1]), sobrancelha: t => 0.6 * Math.max(0, Math.sin(t * 2.3)) },
+  rosto: { piscar: 7, fala: t => talk(t, 0.4, 2.5, 9), sobrancelha: t => 0.4 * Math.max(0, Math.sin(t * 2.3)), expressao: [[0, 'feliz', 0.7], [2.8, 'rindo'], [4.2, 'apaixonado']] },
   segura: { N: xicara(5) },
 });
 const shot3 = scene({
@@ -308,7 +309,7 @@ const shot3 = scene({
       woman({
         tronco: kf([0, -76], [2.8, -76], [3.2, -86], [4.2, -78]),
         cabeca: t => 4 - 12 * smooth(2.7, 3.1, t) * (1 - smooth(4, 4.6, t)) + 2 * Math.sin(t * 1.1),
-        sorriso: kf([0, 0.6], [2.7, 0.7], [3.0, 1]), fala: t => talk(t, 2.8, 3.9, 13, 13) * 0.8 + talk(t, 5.8, 7, 3),
+        fala: t => talk(t, 5.8, 7, 3), expressao: [[0, 'feliz', 0.8], [2.8, 'rindo'], [4.1, 'apaixonado']],
         maoN: kf([0, [172, -112]], [2.7, [172, -112]], [3, [74, -118]], [4.2, [74, -118]], [4.6, [172, -112]]), angMaoN: kf([0, 0], [2.7, 0], [3, -65], [4.2, -65], [4.6, 0]),
         maoF: [186, -114],
       }),

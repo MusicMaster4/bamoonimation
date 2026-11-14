@@ -51,6 +51,7 @@ export const ESTILOS = {
     mblur: 0, // motion blur: nº de subquadros (ex.: 4). Pode ser animado.
     shutter: 0.5,
     caption: { font: 'hand', size: 46, c: '#ffffff', y: 0.885 },
+    unido: true, // PEÇA ÚNICA: personagens (rigs) pintados como um corpo só — ver UNIDO (false = peças soltas, como antes)
   },
 };
 // limpo: vetor chapado (diagramas, testes) — sem texturas, grão, vinheta, bloom, grade nem desfoque
@@ -73,6 +74,25 @@ export const LUZES = {
 };
 
 export const DEFAULT_LOOK = ESTILOS.ilustrado;
+
+/**
+ * PEÇA ÚNICA (look.unido / rig.unido): como o personagem vira um corpo só em vez de uma colagem de peças.
+ * Forças (0..1) e tamanhos (fração do maior lado do esqueleto). Qualquer chave pode ser sobrescrita em
+ * look: { unido: { forma: 0.6 } } ou no rig: unido: { oclusao: 0.3 } | false.
+ */
+export const UNIDO = {
+  parte: 0.2, // quanto de sombra/realce próprios cada peça mantém (1 = peças soltas, como antes)
+  oclusao: 0.7, // sombra que cada peça projeta nas de trás (braço no tronco, cabeça no pescoço)
+  ocD: 0.009, // deslocamento dessa sombra (para longe do sol)
+  ocB: 0.018, // desfoque dessa sombra
+  banho: 0.42, // degradê luz→sombra único para o corpo inteiro
+  forma: 0.65, // sombra de forma pela silhueta inteira (lado oposto ao sol)
+  formaD: 0.045,
+  formaB: 0.045,
+  borda: 0.45, // realce de borda do lado do sol
+  bordaD: 0.008,
+  bordaB: 0.006,
+};
 
 const BLEND = {
   multiply: 'multiply', screen: 'screen', overlay: 'overlay', add: 'lighter', lighter: 'lighter',
@@ -140,6 +160,7 @@ export class Renderer {
     this.debugArcs = arcos; // trilhas de movimento das extremidades dos rigs (arcos e espaçamento)
     this.anc = []; // pilha de ancestrais do nó sendo desenhado (para avaliar o movimento dele em outros instantes)
     this.rigCache = new Map();
+    this.molaCache = new Map();
     this.subjects = [];
     this.noDrift = false;
     const first = this.root.scenes[0];
@@ -551,7 +572,14 @@ export class Renderer {
     if (m) ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
     // follow-through / overlapping action: rotação secundária pela inércia do movimento dos ancestrais
     if (n.mola) {
-      const a = this.molaAng(n, t, env);
+      // a peça única desenha cada pele duas vezes (máscara + cor) com a mesma matriz: reaproveita a mola
+      const Mk = ctx.getTransform(), key = `${n.id}|${t}|${Mk.a.toFixed(4)},${Mk.b.toFixed(4)},${Mk.e.toFixed(1)},${Mk.f.toFixed(1)}`;
+      let a = this.molaCache.get(key);
+      if (a === undefined) {
+        a = this.molaAng(n, t, env);
+        if (this.molaCache.size > 2000) this.molaCache.clear();
+        this.molaCache.set(key, a);
+      }
       if (a) {
         const px = n.px === undefined ? 0 : V(n.px, t, env), py = n.py === undefined ? 0 : V(n.py, t, env);
         ctx.translate(px, py);
@@ -598,10 +626,16 @@ export class Renderer {
         if (!this.sil) this.drawSombra(ctx, n, inh, t, env);
         break;
       case 'img': {
-        if (this.sil) break;
+        if (this.sil && !this.silTudo) break;
         const im = this.image(V(n.src, t, env));
         const w = n.w !== undefined ? V(n.w, t, env) : im.width;
         const h = n.h !== undefined ? V(n.h, t, env) : (im.height * w) / im.width;
+        if (this.bbAcc) accBox(this.bbAcc, ctx.getTransform(), [0, 0, w, h], 0);
+        if (this.sil) {
+          ctx.fillStyle = this.silCol;
+          ctx.fillRect(0, 0, w, h);
+          break;
+        }
         if (n.blend) ctx.globalCompositeOperation = blendOp(V(n.blend, t, env));
         ctx.drawImage(im, 0, 0, w, h);
         break;
@@ -795,6 +829,24 @@ export class Renderer {
   }
 
   drawGroup(ctx, n, inh, t, env, alpha) {
+    // peça única: grupos de formas repetidas (penas, escamas, pétalas, dedos) mantêm o volume de cada forma;
+    // `parte` num grupo fixa a força da sombra própria para tudo dentro dele
+    if (this.partK !== undefined && !n.merge) {
+      const ov = n.parte !== undefined ? V(n.parte, t, env) : repeticao(n) ? 1 : undefined;
+      if (ov !== undefined) {
+        const pv = this.partOv;
+        this.partOv = ov;
+        try {
+          return this.drawGroupInner(ctx, n, inh, t, env, alpha);
+        } finally {
+          this.partOv = pv;
+        }
+      }
+    }
+    return this.drawGroupInner(ctx, n, inh, t, env, alpha);
+  }
+
+  drawGroupInner(ctx, n, inh, t, env, alpha) {
     const inh2 = this.inherit(inh, n, t, env);
     if (n.merge && V(n.merge, t, env)) {
       const p = new Path2D();
@@ -878,6 +930,8 @@ export class Renderer {
         typeof n.d === 'function' || n.d instanceof KF ||
         n.w instanceof KF || (Array.isArray(n.w) && isAnim(n.w));
     }
+    // geometria animada: a peça única pede a mesma forma 3× no quadro (medida, máscara, cor)
+    if (n._dyn && n._gT === t && n._gE === env) return n._gV;
     let p, wmax;
     switch (n.type) {
       case 'blob': {
@@ -933,6 +987,11 @@ export class Renderer {
     }
     const g = { path: p, bb: p.getBounds(), complex: n.type === 'path', wmax };
     if (!n._dyn) n._g = g;
+    else {
+      n._gT = t;
+      n._gE = env;
+      n._gV = g;
+    }
     return g;
   }
 
@@ -994,6 +1053,7 @@ export class Renderer {
       ctx.shadowOffsetX = (drop.x ?? 0) * ds;
       ctx.shadowOffsetY = (drop.y ?? 8) * ds;
     }
+    if (this.bbAcc) accBox(this.bbAcc, M, g.bb, blur * 3);
     if (fill) {
       ctx.fillStyle = this.paint(ctx, fill, g.bb);
       ctx.fill(g.path, rule);
@@ -1012,9 +1072,25 @@ export class Renderer {
         tex = at && size * ds >= (at.min ?? 70) * this.s ? at : null;
       }
       const lz = inh.look?.autoLuz;
-      const wash = lz > 0 && n.luz !== false && size * ds >= 50 * this.s;
-      const shade = this.st(n, 'shade', inh, t, env);
-      const hl = this.st(n, 'hl', inh, t, env);
+      const pk = this.partK;
+      // na peça única o banho de luz é do corpo inteiro (não recomeça em cada peça)
+      const wash = pk === undefined && lz > 0 && n.luz !== false && size * ds >= 50 * this.s;
+      let shade = this.st(n, 'shade', inh, t, env);
+      let hl = this.st(n, 'hl', inh, t, env);
+      if (pk !== undefined) {
+        const look = inh.look ?? DEFAULT_LOOK;
+        let k = n.parte !== undefined ? V(n.parte, t, env) : this.partOv ?? pk;
+        if (n.parte === undefined && this.partOv === undefined && this.partArea > 0) {
+          // só as formas que SÃO a peça (tronco, braço, rosto) perdem a meia-lua própria;
+          // formas pequenas dentro da peça (penas, escamas, dedos, mechas) continuam com volume
+          const b = [Infinity, Infinity, -Infinity, -Infinity];
+          accBox(b, M, g.bb, 0);
+          const r = ((b[2] - b[0]) * (b[3] - b[1])) / this.partArea;
+          k = lerp(1, k, smooth(0.18, 0.5, r));
+        }
+        shade = scaleFx(shade, k, look.shade);
+        hl = scaleFx(hl, k, look.hl);
+      }
       const sh = (shade || hl) && size * ds > 5;
       if (tex || wash || sh) {
         // um único recorte pela forma para textura, banho de luz, sombra e realce (antes: um clip por efeito;
@@ -1057,11 +1133,12 @@ export class Renderer {
   /** Teste da silhueta (staging): cada forma chapada na cor do seu plano; efeitos de luz não aparecem. */
   drawShapeSil(ctx, n, g, inh, t, env) {
     const blend = n.type !== 'group' && n.blend ? V(n.blend, t, env) : null;
-    if (blend && blend !== 'source-over') return; // luzes, brilhos, sombras de multiply
+    if (blend && blend !== 'source-over' && !this.silTudo) return; // luzes, brilhos, sombras de multiply
     const fill = this.st(n, 'fill', inh, t, env);
     const stroke = n.type === 'taper' ? null : this.st(n, 'stroke', inh, t, env);
     const clear = c => typeof c === 'string' && /^#([0-9a-f]{3}0|[0-9a-f]{6}00)$/i.test(c);
     const rule = n.rule === 'evenodd' ? 'evenodd' : 'nonzero';
+    if (this.bbAcc) accBox(this.bbAcc, ctx.getTransform(), g.bb, 0);
     if (fill && !clear(fill)) {
       // chão/paredes do plano focal (formas maiores que a tela) ficam cinza: o preto é só para os atores
       const M = ctx.getTransform(), ds = sqrt(abs(M.a * M.d - M.b * M.c)) * (this.curLayerF ?? 1);
@@ -1198,9 +1275,10 @@ export class Renderer {
     ctx.lineWidth = n.lw !== undefined ? V(n.lw, t, env) : inh.lw ?? 3;
     ctx.lineCap = n.cap ?? 'round';
     ctx.lineJoin = 'round';
-    if (this.sil && n.blend) return;
+    if (this.sil && n.blend && !this.silTudo) return;
     const col = this.sil ? this.silCol : n.stroke !== undefined ? V(n.stroke, t, env) : inh.stroke ?? '#1d1a2b';
     const bb = p.getBounds();
+    if (this.bbAcc) accBox(this.bbAcc, M, bb, ctx.lineWidth);
     ctx.strokeStyle = this.paint(ctx, col, bb);
     if (n.dash) {
       ctx.setLineDash(V(n.dash, t, env));
@@ -1385,7 +1463,7 @@ export class Renderer {
   }
 
   drawParticles(ctx, n, inh, t, env) {
-    if (this.sil && (n.blend || n.glow)) return;
+    if (this.sil && (n.blend || n.glow) && !this.silTudo) return;
     const list = this.evalParticles(n, t, env);
     if (!list.length) return;
     if (this.sil) {
@@ -1393,7 +1471,7 @@ export class Renderer {
       ctx.fillStyle = this.silCol;
       const a0 = ctx.globalAlpha;
       for (const q of list) {
-        ctx.globalAlpha = a0 * 0.35 * q.alpha;
+        ctx.globalAlpha = a0 * (this.silTudo ? 1 : 0.35) * q.alpha;
         ctx.beginPath();
         ctx.ellipse(q.x, q.y, max(0.01, q.size * q.sx), max(0.01, q.size * q.sy), q.ang, 0, TAU);
         ctx.fill();
@@ -1907,35 +1985,255 @@ export class Renderer {
       });
       if (n.order !== 'manual') n._skin.sort((a, b) => a.rank - b.rank || a.idx - b.idx);
     }
-    for (const it of n._skin) {
-      if (it.show && (t < it.show[0] || t >= it.show[1])) continue;
-      if (it.hidden && V(it.hidden, t, env)) continue;
-      ctx.save();
-      if (it.alpha !== undefined) ctx.globalAlpha *= V(it.alpha, t, env);
-      if (it.kind === 'bone') {
-        const cur = S.get(it.bone);
-        if (!cur) throw new Error(`bamoo rig "${n.name ?? n.id}": pele presa a osso inexistente "${it.bone}"`);
-        if (it.local) {
-          ctx.translate(cur.x0, cur.y0);
-          ctx.rotate((cur.abs * PI) / 180);
-        } else ctx.transform(...bindMatrix(rest.get(it.bone), cur));
-        this.anc.push({ bone: it.bone, rig: n, local: !!it.local });
-        this.drawNode(ctx, it.node, inh2, t, env);
-        this.anc.pop();
-      } else if (it.kind === 'limb') {
-        const w = typeof it.w === 'function' ? it.w : deepV(it.w, t, env);
-        const p = limbPath(chainPoints(S, it.limb), w, { joint: it.joint ?? 0.7, caps: it.caps ?? 'round' });
-        this.drawShape(ctx, it, { path: p, bb: p.getBounds() }, inh2, t, env, Array.isArray(w) ? max(...w) : typeof w === 'number' ? w : undefined);
-      } else if (it.kind === 'spine') {
-        const p = blobPath(spinePoints(S, it.spine, deepV(it.top, t, env), deepV(it.bot ?? it.top, t, env), it.n ?? 16));
-        this.drawShape(ctx, it, { path: p, bb: p.getBounds() }, inh2, t, env);
-      } else if (it.kind === 'draw') {
-        for (const c of flat(it.draw(S, t, env))) this.drawNode(ctx, c, inh2, t, env);
-      } else this.drawNode(ctx, it.node, inh2, t, env);
-      ctx.restore();
-    }
+    const U = this.unidoDe(n, inh2, t, env);
+    if (U) this.drawRigUnido(ctx, n, U, S, rest, inh2, t, env);
+    else for (const it of n._skin) this.drawSkin(ctx, n, it, S, rest, inh2, t, env);
     if (this.debugRig) this.drawSkeleton(ctx, sol);
     if (this.debugArcs) this.drawArcs(ctx, n, t, env);
+  }
+
+  /** Desenha uma pele do rig (osso, membro, coluna, draw ou nó solto). */
+  drawSkin(ctx, n, it, S, rest, inh2, t, env) {
+    if (it.show && (t < it.show[0] || t >= it.show[1])) return;
+    if (it.hidden && V(it.hidden, t, env)) return;
+    ctx.save();
+    if (it.alpha !== undefined) ctx.globalAlpha *= V(it.alpha, t, env);
+    if (it.kind === 'bone') {
+      const cur = S.get(it.bone);
+      if (!cur) throw new Error(`bamoo rig "${n.name ?? n.id}": pele presa a osso inexistente "${it.bone}"`);
+      if (it.local) {
+        ctx.translate(cur.x0, cur.y0);
+        ctx.rotate((cur.abs * PI) / 180);
+      } else ctx.transform(...bindMatrix(rest.get(it.bone), cur));
+      this.anc.push({ bone: it.bone, rig: n, local: !!it.local });
+      this.drawNode(ctx, it.node, inh2, t, env);
+      this.anc.pop();
+    } else if (it.kind === 'limb') {
+      const w = typeof it.w === 'function' ? it.w : deepV(it.w, t, env);
+      const p = limbPath(chainPoints(S, it.limb), w, { joint: it.joint ?? 0.7, caps: it.caps ?? 'round' });
+      this.drawShape(ctx, it, { path: p, bb: p.getBounds() }, inh2, t, env, Array.isArray(w) ? max(...w) : typeof w === 'number' ? w : undefined);
+    } else if (it.kind === 'spine') {
+      const p = blobPath(spinePoints(S, it.spine, deepV(it.top, t, env), deepV(it.bot ?? it.top, t, env), it.n ?? 16));
+      this.drawShape(ctx, it, { path: p, bb: p.getBounds() }, inh2, t, env);
+    } else if (it.kind === 'draw') {
+      for (const c of flat(it.draw(S, t, env))) this.drawNode(ctx, c, inh2, t, env);
+    } else this.drawNode(ctx, it.node, inh2, t, env);
+    ctx.restore();
+  }
+
+  /** Opções efetivas da PEÇA ÚNICA (look.unido + rig.unido) ou null (desligada / modos de depuração). */
+  unidoDe(n, inh, t, env) {
+    if (this.sil || this.debugLayers || this.unidoAtivo) return null;
+    const lk = inh.look?.unido;
+    const own = n.unido === undefined ? undefined : V(n.unido, t, env);
+    if (own === false || own === 0 || ((lk === false || lk == null) && !own)) return null;
+    return { ...UNIDO, ...(lk && typeof lk === 'object' ? lk : {}), ...(own && typeof own === 'object' ? own : {}) };
+  }
+
+  /**
+   * PEÇA ÚNICA: o personagem inteiro é pintado como UM corpo, não como peças coladas.
+   * 1) cada pele é pintada com a sua cor e textura e só um resto (`parte`) da sombra própria;
+   * 2) antes de cada pele, a sombra que ela projeta nas peças de trás (`oclusao`) — o braço assenta no tronco,
+   *    a cabeça no pescoço, a perna de cá na de lá;
+   * 3) depois, UMA luz para o corpo todo, calculada pela silhueta inteira: banho de luz (`banho`), sombra de
+   *    forma no lado oposto ao sol (`forma`) e realce de borda do lado do sol (`borda`);
+   * 4) o personagem entra na camada como uma imagem só (alpha do rig não deixa ver as sobreposições).
+   */
+  drawRigUnido(ctx, n, U, S, rest, inh, t, env) {
+    const W0 = ctx.canvas.width, H0 = ctx.canvas.height;
+    const M0 = ctx.getTransform(), ds = sqrt(abs(M0.a * M0.d - M0.b * M0.c)) || 1;
+    const look = inh.look ?? DEFAULT_LOOK;
+    // escala do personagem (px do canvas): maior lado do esqueleto em repouso
+    const rb = this.nodeBox(n, t, env);
+    const sz = max(40, (rb ? max(rb[2] - rb[0], rb[3] - rb[1]) : 300) * ds * (U.escala ?? 1));
+    let sx = (inh.sun ?? look.sun ?? [-0.55, -0.85])[0], sy = (inh.sun ?? look.sun ?? [-0.55, -0.85])[1];
+    const sl = hypot(sx, sy) || 1;
+    sx /= sl;
+    sy /= sl;
+    const shadowC = inh.shadow ?? look.shadow ?? '#43306a', lightC = inh.light ?? look.light ?? '#fff2d8';
+    this.medidor ??= createCanvas(2, 2);
+    const med = this.medidor.getContext('2d');
+    // desenha a pele em modo máscara (chapada, cor `col`) em `x` com a matriz `m`; `ib` acumula a caixa
+    const mascara = (x, m, it, col, ib) => {
+      const sv = [this.sil, this.silCol, this.curFocal, this.silTudo, this.bbAcc];
+      this.sil = true;
+      this.silCol = col;
+      this.curFocal = false;
+      this.silTudo = true;
+      this.bbAcc = ib;
+      x.save();
+      x.setTransform(m);
+      try {
+        this.drawSkin(x, n, it, S, rest, inh, t, env);
+      } finally {
+        x.restore();
+        [this.sil, this.silCol, this.curFocal, this.silTudo, this.bbAcc] = sv;
+      }
+    };
+    // 1) MEDE cada pele (sem pintar) em px da tela: a tela do personagem cobre TUDO o que ele desenha
+    //    (asas abertas, orelhas, cabelo, objetos na mão) — nada é cortado
+    const caixas = n._skin.map(it => {
+      const ib = [Infinity, Infinity, -Infinity, -Infinity];
+      mascara(med, M0, it, '#000', ib);
+      return ib[2] > ib[0] ? ib : null;
+    });
+    const bb0 = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const s of S.values()) for (const [x, y] of [[s.x0, s.y0], [s.x1, s.y1]]) accPt(bb0, M0.a * x + M0.c * y + M0.e, M0.b * x + M0.d * y + M0.f);
+    for (const ib of caixas) if (ib) for (const k of [0, 1]) accPt(bb0, ib[2 * k], ib[2 * k + 1]);
+    const mg = 0.02 * sz + max(0.8, U.ocB * sz) * 3 + (U.margem ?? 0) * sz + 6;
+    const rx = max(0, floor(bb0[0] - mg)), ry = max(0, floor(bb0[1] - mg));
+    const rx1 = min(W0, Math.ceil(bb0[2] + mg)), ry1 = min(H0, Math.ceil(bb0[3] + mg));
+    if (!(rx1 > rx && ry1 > ry)) return;
+    // telas do tamanho do personagem, não da tela inteira: cada passe custa pela área dele
+    const W = min(W0, Math.ceil((rx1 - rx) / 32) * 32), H = min(H0, Math.ceil((ry1 - ry) / 32) * 32);
+    const M = new DOMMatrix([M0.a, M0.b, M0.c, M0.d, M0.e - rx, M0.f - ry]);
+    const cc = this.acquire(W, H), cx = cc.getContext('2d');
+    cx.setTransform(M);
+    const oc = U.oclusao > 0;
+    // silhueta exata do corpo (união das máscaras das peles): no fim corta o que a sombra de oclusão pintou fora
+    const silC = oc ? this.acquire(W, H) : null, silX = silC?.getContext('2d');
+    const all = [Infinity, Infinity, -Infinity, -Infinity];
+    // inclui os ossos (peles fora de drawShape, como linhas e imagens, ficam dentro da margem)
+    for (const s of S.values()) for (const [x, y] of [[s.x0, s.y0], [s.x1, s.y1]]) accPt(all, M.a * x + M.c * y + M.e, M.b * x + M.d * y + M.f);
+    const prev = { acc: this.bbAcc, partK: this.partK };
+    this.unidoAtivo = true;
+    this.partK = U.parte;
+    const ocD = U.ocD * sz, ocB = max(0.8, U.ocB * sz);
+    const padO = ocB * 3 + ocD + 2;
+    let any = false;
+    try {
+      n._skin.forEach((it, idx) => {
+        this.partArea = 0;
+        const ib0 = caixas[idx];
+        if (ib0) {
+          const ib = [ib0[0] - rx, ib0[1] - ry, ib0[2] - rx, ib0[3] - ry];
+          // tamanho da pele: formas pequenas dentro dela (penas, escamas, dedos) mantêm o volume próprio
+          this.partArea = (ib[2] - ib[0]) * (ib[3] - ib[1]);
+          const r0 = max(0, floor(ib[0] - padO)), r1 = max(0, floor(ib[1] - padO));
+          const rw = min(W, Math.ceil(ib[2] + padO)) - r0, rh = min(H, Math.ceil(ib[3] + padO)) - r1;
+          if (oc && rw > 0 && rh > 0) {
+            // 2) máscara da pele numa tela do tamanho dela (ler telas pequenas é barato)
+            const kw = Math.ceil(rw / 16) * 16, kh = Math.ceil(rh / 16) * 16;
+            const mk = this.acquire(kw, kh), mx = mk.getContext('2d');
+            mascara(mx, new DOMMatrix([M.a, M.b, M.c, M.d, M.e - r0, M.f - r1]), it, shadowC, null);
+            silX.drawImage(mk, r0, r1);
+            const toca = any && it.oclusao !== false && !(ib[0] > all[2] || ib[2] < all[0] || ib[1] > all[3] || ib[3] < all[1]);
+            if (toca) {
+              // 3) sombra desfocada da pele, multiplicada sobre as peças já pintadas (o halo de fora sai no corte final)
+              const om = this.acquire(kw, kh), ox = om.getContext('2d');
+              ox.filter = `blur(${ocB}px)`;
+              ox.drawImage(mk, -sx * ocD, -sy * ocD);
+              ox.filter = 'none';
+              cx.save();
+              cx.setTransform(1, 0, 0, 1, 0, 0);
+              clipBox(cx, [r0, r1, r0 + rw, r1 + rh], 0);
+              cx.globalCompositeOperation = 'multiply';
+              cx.globalAlpha = min(1, typeof it.oclusao === 'number' ? it.oclusao : U.oclusao);
+              cx.drawImage(om, r0, r1);
+              cx.restore();
+              this.release(om);
+            }
+            this.release(mk);
+          }
+        }
+        this.bbAcc = all;
+        this.drawSkin(cx, n, it, S, rest, inh, t, env);
+        any = true;
+      });
+    } finally {
+      this.bbAcc = prev.acc;
+      this.partK = prev.partK;
+      this.partArea = 0;
+      this.unidoAtivo = false;
+    }
+    if (silC) {
+      cx.save();
+      cx.setTransform(1, 0, 0, 1, 0, 0);
+      cx.globalCompositeOperation = 'destination-in';
+      cx.drawImage(silC, 0, 0);
+      cx.restore();
+      this.release(silC);
+    }
+    if (!(all[2] > all[0])) {
+      this.release(cc);
+      return;
+    }
+    const pad = 0.04 * sz + 4;
+    // caixa em pixels inteiros: recorte sem antialiasing (bordas de recorte parciais deixariam riscos)
+    const bb = [max(0, floor(all[0] - pad)), max(0, floor(all[1] - pad)), min(W, Math.ceil(all[2] + pad)), min(H, Math.ceil(all[3] + pad))];
+    const bw = bb[2] - bb[0], bh = bb[3] - bb[1];
+    if (bw > 1 && bh > 1) {
+      // os três passes LEEM o corpo antes de qualquer um escrever nele (uma leitura só da tela do corpo)
+      const passes = [];
+      const prep = (fillFn, cut, op, a) => {
+        if (!(a > 0)) return;
+        const tmp = this.acquire(W, H), tx = tmp.getContext('2d');
+        tx.save();
+        clipBox(tx, bb, 0);
+        if (cut && cut.b > 6) {
+          // desfoque largo: calcula a faixa em 1/4 da resolução (o desfoque esconde a perda) e amplia
+          const f = 4, w = Math.ceil(W / f), h = Math.ceil(H / f);
+          const sm = this.small(w, h, 'unido'), smx = sm.getContext('2d');
+          fillFn(smx, 1 / f);
+          smx.globalCompositeOperation = 'destination-out';
+          smx.imageSmoothingQuality = 'low';
+          smx.filter = `blur(${cut.b / f}px)`;
+          smx.drawImage(cc, cut.dx / f, cut.dy / f, W / f, H / f);
+          smx.filter = 'none';
+          tx.imageSmoothingQuality = 'low';
+          tx.drawImage(sm, 0, 0, w, h, 0, 0, w * f, h * f);
+        } else {
+          fillFn(tx, 1);
+          if (cut) {
+            // "sombra interna": tira a silhueta deslocada (e desfocada) — sobra a faixa do lado oposto
+            tx.globalCompositeOperation = 'destination-out';
+            tx.filter = `blur(${cut.b}px)`;
+            tx.drawImage(cc, cut.dx, cut.dy);
+            tx.filter = 'none';
+          }
+        }
+        tx.globalCompositeOperation = 'destination-in';
+        tx.drawImage(cc, 0, 0);
+        tx.restore();
+        passes.push({ tmp, op, a });
+      };
+      const chapado = c => (x, k) => {
+        x.fillStyle = c;
+        x.fillRect(bb[0] * k, bb[1] * k, bw * k + 2, bh * k + 2);
+      };
+      // banho de luz do corpo inteiro (um degradê só: as peças não recomeçam a luz)
+      prep((x, k) => {
+        const cxm = (bb[0] + bb[2]) / 2, cym = (bb[1] + bb[3]) / 2;
+        const ext = abs((bw / 2) * sx) + abs((bh / 2) * sy);
+        const g = x.createLinearGradient(cxm + sx * ext, cym + sy * ext, cxm - sx * ext, cym - sy * ext);
+        g.addColorStop(0, lightC);
+        g.addColorStop(0.5, '#808080');
+        g.addColorStop(1, shadowC);
+        x.fillStyle = g;
+        x.fillRect(bb[0], bb[1], bw, bh);
+      }, null, 'soft-light', (look.autoLuz ?? 0.38) > 0 ? U.banho : 0);
+      // sombra de forma pela silhueta inteira
+      prep(chapado(shadowC), { dx: sx * U.formaD * sz, dy: sy * U.formaD * sz, b: max(0.8, U.formaB * sz) }, 'multiply', U.forma);
+      // realce de borda do lado do sol
+      prep(chapado(lightC), { dx: -sx * U.bordaD * sz, dy: -sy * U.bordaD * sz, b: max(0.6, U.bordaB * sz) }, 'screen', U.borda);
+      cx.save();
+      cx.setTransform(1, 0, 0, 1, 0, 0);
+      clipBox(cx, bb, 0);
+      for (const p of passes) {
+        cx.globalCompositeOperation = p.op;
+        cx.globalAlpha = min(1, p.a);
+        cx.drawImage(p.tmp, 0, 0);
+        this.release(p.tmp);
+      }
+      cx.restore();
+    }
+    // o corpo entra na camada como uma imagem só
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    clipBox(ctx, [bb[0] + rx, bb[1] + ry, bb[2] + rx, bb[3] + ry], 0);
+    ctx.drawImage(cc, rx, ry);
+    ctx.restore();
+    this.release(cc);
   }
 
   /** Sombras de contato (multiply, desfocadas) sob os ossos de contato, que somem quando o pé sobe. */
@@ -2242,6 +2540,42 @@ function desvio(s, a, b) {
 function u32(b) {
   if (b.byteOffset & 3) throw new Error('bamoo: buffer de pixels desalinhado');
   return new Uint32Array(b.buffer, b.byteOffset, b.length >> 2);
+}
+
+/** Expande a caixa acumulada `acc` (px do canvas) com o ponto (x, y). */
+function accPt(acc, x, y) {
+  if (x < acc[0]) acc[0] = x;
+  if (y < acc[1]) acc[1] = y;
+  if (x > acc[2]) acc[2] = x;
+  if (y > acc[3]) acc[3] = y;
+}
+
+/** Expande `acc` com a caixa local bb transformada por M (DOMMatrix) + margem local `pad`. */
+function accBox(acc, M, bb, pad = 0) {
+  const x0 = bb[0] - pad, y0 = bb[1] - pad, x1 = bb[2] + pad, y1 = bb[3] + pad;
+  if (!(x1 >= x0)) return;
+  for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) accPt(acc, M.a * x + M.c * y + M.e, M.b * x + M.d * y + M.f);
+}
+
+/** Grupo de formas repetidas (≥3 filhos do mesmo tipo e sem cores próprias diferentes): penas, escamas... */
+function repeticao(n) {
+  if (n._rep !== undefined) return n._rep;
+  const c = Array.isArray(n.children) ? n.children.filter(Boolean) : null;
+  let r = false;
+  if (c && c.length >= 3) {
+    const ty = c[0].type, f0 = c[0].fill;
+    r = c.every(k => k.type === ty && k.type !== 'rig' && (k.fill === undefined || k.fill === f0));
+  }
+  return (n._rep = r);
+}
+
+/** Escala a força de um efeito shade/hl (número | true | { a, ... }). */
+function scaleFx(v, k, def) {
+  if (!v || k === 1) return v;
+  if (typeof v === 'number') return v * k;
+  if (v === true) return (def ?? 0.4) * k;
+  if (typeof v === 'object') return { ...v, a: (v.a ?? def ?? 0.4) * k };
+  return v;
 }
 
 /** Recorta o contexto à caixa bb expandida (limita o custo de filtros de blur). */

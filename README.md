@@ -352,8 +352,9 @@ rig({ name: 'cão', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 
 |---|---|
 | `skeleton(plano, opts)` | ossos com proporções reais e limites articulares: `humano` (`altura, cabecas, sexo`), `quadrupede` (`altura, variante: cao/gato/cavalo/coelho`), `ave` (`tamanho`), `peixe` (`comprimento, segmentos`) |
 | `rig({ bones, pose, ik, skin, ground, plan, name })` | esqueleto animado: `pose` (ângulos por osso), `ik` (cadeias de 2–3 ossos; escolhe a dobra válida), `skin` (desenhos presos aos ossos, ordem automática lado de lá → lado de cá) |
-| `pessoa({...})` | **figura humana base** pronta (homem/mulher): corpo de perfil anatômico, mãos, pés, rosto com piscar/fala/sorriso, cabelos, barba, óculos, roupas, objetos nas mãos |
-| `caminhada(pessoaOpts, { x, chao })` | andar realista sem patinar (devolve `y`, `pose`, `ik` prontos) |
+| `pessoa({...})` | **figura humana base** pronta (homem/mulher): corpo de perfil anatômico, mãos, pés, rosto com piscar/fala, **20 expressões prontas** (`rosto: { expressao: 'rindo' }` ou linha do tempo), cabelos, barba, óculos, roupas, objetos nas mãos |
+| `caminhada(pessoaOpts, { x, chao, jeito })` | andar realista sem patinar (contato, descida, passagem, impulso; devolve `y`, `pose`, `ik` prontos) com **7 jeitos**: normal, alegre, triste, apressado, cansado, furtivo, confiante |
+| peça única (automática) | todo rig é pintado como **um corpo só**: oclusão entre as peças, luz e sombra pela silhueta inteira (`look.unido`, `rig({ unido: false })`) |
 | `bocaAberta({ cima, baixo })`, `fileiraDentes()` | **boca aberta de animal** com profundidade: abertura côncava, garganta, língua, gengiva e dentes do lado de lá |
 | `ave({...})`, `ASA`, `bater(t, freq)` | **ave base** (rapina ou pássaro): asa com dobra em Z modelada na própria planta e projetada pela elevação (a borda de fuga fica sempre para trás), poses prontas (planando, freio, dobrada...) e batida realista |
 | `bamoo check` | verificador de anatomia, chão, camadas e texto |
@@ -363,8 +364,12 @@ rig({ name: 'cão', plan: 'quadrupede', bones: skeleton('quadrupede', { altura: 
 | ![pessoas](media/pessoas.jpg) | ![pessoas rig](media/pessoas_rig.jpg) |
 | ![animais](media/animais.jpg) | ![animais rig](media/animais_rig.jpg) |
 
+| expressões prontas (`rosto: { expressao }`) | jeitos de andar (`caminhada({ jeito })`) |
+|---|---|
+| ![expressões](media/expressoes.jpg) | ![jeitos](media/jeitos.jpg) |
+
 Pranchas de referência para inspecionar: [`scenes/testes/pessoas.js`](scenes/testes/pessoas.js) (poses),
-[`scenes/testes/andar.js`](scenes/testes/andar.js) (caminhada), [`scenes/testes/aves.js`](scenes/testes/aves.js) (ciclo de batida e poses de aves), `poseTest` em [`scenes/hawk.js`](scenes/hawk.js) (gavião e coelho).
+[`scenes/testes/andar.js`](scenes/testes/andar.js) (caminhada), [`scenes/testes/jeitos.js`](scenes/testes/jeitos.js) (jeitos de andar), [`scenes/testes/expressoes.js`](scenes/testes/expressoes.js) (expressões), [`scenes/testes/aves.js`](scenes/testes/aves.js) (ciclo de batida e poses de aves), `poseTest` em [`scenes/hawk.js`](scenes/hawk.js) (gavião e coelho).
 
 ![aves](media/aves.jpg)
 
@@ -477,7 +482,7 @@ src/
   render.js           renderer Skia (camadas, sombreamento, texturas, partículas, raios, pós)
   rig.js              esqueletos: FK, IK com limites, peles presas aos ossos
   anatomy.js          esqueletos de referência (humano, quadrúpede, ave, peixe) e regras de proporção
-  pessoa.js           figura humana base (homem/mulher) + caminhada anatômica
+  pessoa.js           figura humana base (homem/mulher), expressões prontas + caminhada anatômica com jeitos
   ave.js              ave base (rapina/pássaro) com asa anatômica projetada + poses de voo
   boca.js             boca aberta de animal (garganta, língua, dentes do lado de lá, abertura côncava)
   check.js            verificador (bamoo check) — anatomia, camadas, texto e princípios de animação

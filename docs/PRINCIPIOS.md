@@ -158,8 +158,13 @@ O número de quadros diz o peso e a intenção. Referências a 24–30 fps:
   desliga, `sombra: { a, c }` ajusta). Para móveis e objetos: `sombra(x, chao, largura, { a })` — também aceita
   funções de t (a sombra de um objeto que sobe encolhe e clareia).
 - Uma luz coerente (`look.luz`), sombras próprias em meia-lua e névoa por profundidade já vêm do estilo.
+- **Peça única automática:** cada personagem (rig) é iluminado como um volume só — oclusão entre as peças, sombra
+  de forma e realce de borda pela silhueta inteira (ver "Peça única" em [ANATOMIA.md](ANATOMIA.md)).
 
 ## 12 · Appeal (apelo)
+
+- **Expressões prontas** na `pessoa()`: `rosto: { expressao: 'feliz' }` ou linha do tempo — a troca já vem
+  escalonada (sobrancelhas antes, boca depois) e a cabeça acompanha.
 
 - **Anti-twinning automático:** o lado de lá (F) segue o de cá com `acao.desfase` (35 ms). Ainda assim varie as
   poses: braços em alturas diferentes, um gesto liderando o outro. O `check` acusa twinning.

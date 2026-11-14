@@ -661,12 +661,22 @@ export function blink(t, seed = 0, every = 3.6) {
   return 0;
 }
 
-/** Abertura de boca para fala entre t0 e t1 (0..1). */
-export function talk(t, t0, t1, seed = 0, rate = 9) {
+/**
+ * Abertura de boca para fala entre t0 e t1 (0..1), em SÍLABAS: cada sílaba abre e fecha a boca suavemente
+ * (rate = sílabas por segundo; 3.5–4 é conversa calma, 5–6 é fala apressada), com força variada e pequenas
+ * pausas entre palavras. A boca nunca "bate" no mesmo ritmo nem fecha de estalo.
+ */
+export function talk(t, t0, t1, seed = 0, rate = 3.6) {
   if (t < t0 || t > t1) return 0;
-  const env = smooth(t0, t0 + 0.08, t) * (1 - smooth(t1 - 0.12, t1, t));
-  const n = abs(noise(t * rate, seed)) * 1.25 + 0.25 * max(0, sin(t * rate * 1.7));
-  return clamp(n * env);
+  const env = smooth(t0, t0 + 0.15, t) * (1 - smooth(t1 - 0.2, t1, t));
+  // duração das sílabas varia um pouco (ritmo de fala, não metrônomo)
+  const s = (t - t0) * rate + 0.35 * sin((t - t0) * rate * 0.9 + seed);
+  const i = floor(s), u = s - i;
+  const amp = k => (hash(k * 7 + 3, seed + 1) < 0.18 ? 0.12 : 0.45 + 0.55 * hash(k, seed)); // ~1 em 6: pausa
+  const e = u * u * (3 - 2 * u);
+  const a = amp(i) + (amp(i + 1) - amp(i)) * e;
+  const forma = sin(PI * u) ** 1.4; // abre rápido, fecha um pouco mais devagar
+  return clamp(env * a * (0.18 + 0.82 * forma));
 }
 
 /** Respiração: oscilação lenta 0..1. */

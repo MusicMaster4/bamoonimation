@@ -85,12 +85,30 @@ pessoa({ ...ELE, x: t => x.at(t), ground: CHAO, ...passos,
 
 Opções principais: `sexo`, `altura`, `cabecas` (7.5 realista · 6–6.5 ilustração · 4–5 cartum), `pele`,
 `corCabelo`, `cabelo` (`curto | ondulado | coque | longo | careca`), `barba` (`curta | cheia`), `oculos`,
-`roupa` (`jaqueta | camisa | vestido | blusa | calca`), `cores`, `rosto: { piscar, fala, sorriso, sobrancelha, olhar }`,
+`roupa` (`jaqueta | camisa | vestido | blusa | calca`), `cores`, `rosto: { expressao, piscar, fala, sorriso, sobrancelha, olhar, ... }`,
 `pose: { osso: ângulo }`, `ik: { maoN, maoF, peN, peF, angMaoN, ... }` (alvo = **punho/tornozelo**),
 `segura: { N, F }` (objeto na mão), `skin: [...]` (peles extras), `ground` (y do chão, para o verificador).
 Helpers: `pessoa.quadril(o)` (quadril→chão em pé), `pessoa.sola(o)`, `pessoa.perna(o)`.
 
 Peças reutilizáveis para montar variações: `cabecaPerfil(o)`, `olho(...)`, `boca(...)`.
+
+### Expressões prontas — `rosto: { expressao }`
+
+```js
+pessoa({ ...ELA, rosto: { expressao: 'feliz' } });                                       // fixa
+pessoa({ ...ELA, rosto: { expressao: [[0, 'neutro'], [2.4, 'surpreso'], [3.2, 'rindo'], [5, 'apaixonado', 0.7]],
+                          fala: t => talk(t, 3.3, 4.8) } });                              // linha do tempo
+```
+
+20 expressões (`EXPRESSOES`): `neutro feliz rindo triste chorando bravo furioso surpreso assustado nojo desconfiado
+pensativo timido apaixonado entediado sonolento confuso determinado convencido preocupado` (prancha:
+`scenes/testes/expressoes.js`). A troca é suave (`rosto.troca`, 0.32 s) e escalonada como um animador faria:
+sobrancelhas e olhos chegam antes, boca e cabeça depois, com um leve exagero de passagem. A cabeça inclina com a
+expressão (triste abaixa o queixo, convencido levanta). Cada expressão é uma mistura de **canais**, que você também
+pode escrever soltos (somam por cima da expressão): `sorriso` (−1..1), `abre` (boca aberta: a mandíbula desce),
+`dentes`, `bico` (boca em "o"), `sobrancelha` (altura), `sobInt` (−1 bravo .. 1 triste), `palpebra`, `inferior`
+(pálpebra de baixo), `arregala`, `pupila`, `olhar`/`olharY`, `rubor`, `nojo`, `lagrima`, `suor`, `cabeca` (graus).
+Crie as suas: `EXPRESSOES.aliviado = { sorriso: 0.4, sobInt: 0.5, palpebra: 0.3, cabeca: 4 }`.
 
 ### Medidas do corpo humano (já embutidas no esqueleto)
 
@@ -205,6 +223,25 @@ a técnica `wave()` + `body()` (exemplo de uso em `scenes/shark.js` — os perfi
 
 Para posicionar peles, rode `bamoo still cena.js -t 0 --rig --grid` com o rig em pose de descanso.
 
+## Peça única: o personagem é pintado como um corpo só
+
+O motor não sombreia cada pele como um adesivo separado (era isso que dava cara de colagem). Em todo rig:
+1. cada pele recebe sua cor e textura e só um resto (`parte`, 0.2) da sua meia-lua própria;
+2. cada pele projeta uma **sombra de oclusão** suave nas peças que já estão atrás (braço no tronco, cabeça no
+   pescoço, perna de cá na de lá) — é o que faz as peças "assentarem" umas nas outras;
+3. a luz é do **corpo inteiro**: um banho de luz único, a sombra de forma e o realce de borda calculados pela
+   silhueta toda;
+4. o personagem entra na camada como uma imagem só (o `alpha` do rig não mostra as sobreposições).
+
+Formas repetidas dentro de uma pele (penas, escamas, dedos: grupo com ≥3 filhos iguais) e formas pequenas em
+relação à pele mantêm o volume próprio; force com `parte: 0..1` num grupo/forma. Para desenhar bem com isso:
+**sobreponha as peças nas juntas** (sem frestas), use a ordem certa (roupa de cima cobre o quadril; a perna de cá
+fica sob o paletó) e funda numa silhueta só (`G({ merge: true })`) o que é o mesmo pano (corpete + saia = vestido).
+Ajuste no look (`unido: { oclusao, forma, borda, banho, parte }`, ver `UNIDO` em `src/render.js`), por rig
+(`unido: false | {...}`) ou por pele (`oclusao: false | 0.3`). A tela do personagem é medida pelo que as peles
+realmente desenham (asas abertas, orelhas, objetos na mão nunca são cortados). Custa ~20–35% a mais de render
+por quadro com personagens.
+
 ## Atuação automática (os princípios da animação no esqueleto)
 
 Todo rig (pessoa, ave, animais) recebe **atuação automática** — detalhes em [PRINCIPIOS.md](PRINCIPIOS.md):
@@ -219,7 +256,11 @@ andam em **arco** em torno do ombro. Rigs com `ground` ganham **sombra de contat
 ## Movimento sem patinar
 
 - **Pessoas andando**: `caminhada()` (resolve pés, quadril e braços). Velocidade de caminhada ≈ 0.5–0.8 × altura/s;
-  passo ≈ 0.36 × altura. Acelere/freie com `'sine'`/`'inOut'` — o pé de apoio continua plantado.
+  passo ≈ 0.36 × altura. Acelere/freie com `'sine'`/`'inOut'` — o pé de apoio continua plantado. Cada passo tem as
+  4 posições clássicas (contato, descida com o joelho absorvendo o peso, passagem, impulso); o calcanhar sobe
+  sozinho antes de o tornozelo passar do limite. **Jeitos prontos**: `jeito: 'normal' | 'alegre' | 'triste' |
+  'apressado' | 'cansado' | 'furtivo' | 'confiante'` (ou ajuste fino: `braco`, `inclina`, `afunda`, `agacha`,
+  `cabeca`, `quica`, `cotovelo` — ver `JEITOS`). Prancha: `scenes/testes/jeitos.js`.
 - **Qualquer bípede/quadrúpede**: dirija as patas pela **distância percorrida** (`gait(dist, ...)`), não pelo tempo.
 - **Contato no chão**: alvos de pé no apoio = ponto fixo no mundo; no voo/balanço, use poses de ângulos válidos
   (converta por cinemática direta em alvos) para não estourar limites; evite trocar IK ↔ pose instantaneamente

@@ -19,6 +19,6 @@ export { Renderer, DEFAULT_LOOK, ESTILOS, LUZES } from './render.js';
 export { TEXTURES } from './textures.js';
 export { skeleton, PLAN_RULES } from './anatomy.js';
 export { solveRig, restPose, chainPoints, ACAO_RIG } from './rig.js';
-export { pessoa, caminhada, cabecaPerfil, olho, boca } from './pessoa.js';
+export { pessoa, caminhada, JEITOS, cabecaPerfil, olho, boca, EXPRESSOES, expressao, rostoCanais } from './pessoa.js';
 export { ave, ASA, bater, plantaAsa, pelesAsa } from './ave.js';
 export { bocaAberta, fileiraDentes } from './boca.js';

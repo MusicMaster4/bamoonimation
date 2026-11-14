@@ -29,6 +29,9 @@ Tudo é função contínua do tempo, então renderiza em qualquer FPS. Coordenad
    cauda têm mola, pés ganham sombra de contato. **Não reimplemente isso** — escreva as poses-chave com `kf` **sem
    easing**, dê tempo (holds ≥ 0.3 s antes de ações rápidas) e use as ferramentas: `squash`, `mola`, `quica`, `pulo`,
    `acao`, `sombra`, `exagero`. Confira com `--arcos` (arcos e espaçamento) e `--silhueta` (staging).
+   **Rosto e andar já vêm prontos:** use `rosto: { expressao: 'feliz' }` (20 expressões, ou uma linha do tempo
+   `[[0,'neutro'],[2,'surpreso'],[3,'rindo']]` com troca suave) e `caminhada(M, { x, chao, jeito: 'alegre' })`
+   (7 jeitos de andar) em vez de animar sobrancelha/boca/braços à mão.
 6. **Nada de sorteio dentro de função de t** — `r()`, `r.range()` ou `Math.random()` dentro de `t => ...` sorteia
    um valor novo a cada quadro e a imagem pisca. Sorteie uma vez na montagem e use o valor dentro da função:
    `scatter(n, seed, r => { const ph = r(); return circle(x, y, 4, { alpha: t => 0.6 + 0.4 * Math.sin(t + ph) }) })`.
@@ -83,6 +86,18 @@ rig({ name: 'coelho', plan: 'quadrupede', bones: skeleton('quadrupede', { altura
 - IK: `{ chain: [a, b(, c)], target, endAng }` — alvo = ponta do 2º osso; escolhe a dobra válida sozinho.
 - Peles: `{ bone, node }` (desenhe na pose de descanso), `{ limb: [ossos], w }`, `{ spine: [ossos], top, bot }`, `{ draw: S => nó }`.
 - `ground: y` no rig → o verificador checa pé afundando/deslizando **e o motor desenha a sombra de contato**.
+- **Peça única (automático):** todo rig é pintado como UM corpo — cada pele recebe só sua cor/textura, as peças da
+  frente projetam sombra nas de trás (braço no tronco, cabeça no pescoço) e a luz/sombra de forma é calculada pela
+  silhueta inteira. Não pinte sombras em cada peça para "separar" partes; desenhe as peças **sobrepostas nas
+  juntas** e na ordem certa (roupa de cima por cima do quadril); o mesmo pano vira uma silhueta só
+  (`G({ merge: true })`). Formas repetidas (penas, escamas) mantêm o volume de cada uma. Ajuste:
+  `look: { unido: { oclusao, forma, borda, banho, parte } }`, `rig({ unido: false })` ou pele `{ oclusao: false }`.
+- **Expressões** (`pessoa`): `rosto: { expressao }` — `neutro feliz rindo triste chorando bravo furioso surpreso
+  assustado nojo desconfiado pensativo timido apaixonado entediado sonolento confuso determinado convencido
+  preocupado`; intensidade `[[t, 'nome', 0.5]]`; canais soltos (`sorriso`, `sobInt`, `abre`, `palpebra`...) somam
+  por cima. A cabeça inclina com a expressão. Prancha: `scenes/testes/expressoes.js`.
+- **Jeitos de andar** (`caminhada`): `normal alegre triste apressado cansado furtivo confiante` (prancha
+  `scenes/testes/jeitos.js`): contato → descida → passagem → impulso; o calcanhar sobe antes do limite do tornozelo.
 - Atuação automática (rigs/pessoa): `acao: { antecipa: 0.12, passa: 0.1, atraso: 0.03, desfase: 0.035, vida: 1, exagero: 1 }`
   ou `acao: false`. Pessoa: `vida: 1` (respiração, peso, fala, piscar ao virar; 0 desliga).
 
